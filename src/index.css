@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* RTL-aware global defaults */
+  html {
+    direction: rtl;
+    font-family: 'Rubik', 'Assistant', system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+
+  * {
+    @apply box-border;
+  }
+}
+
+@layer components {
+  /* Utility: flip icon direction for RTL */
+  .icon-rtl {
+    transform: scaleX(-1);
+  }
+}
