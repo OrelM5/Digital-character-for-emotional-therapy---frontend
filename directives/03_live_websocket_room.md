@@ -1,94 +1,80 @@
-# SOP-03 · Live Session Control Room (Hybrid: WebSocket + HTTP Steering)
+# SOP-03 · Live Session Control Room (Hybrid WebSocket + REST)
 **Owner:** Yishai | **AI Agent Scope:** `src/live-session/**` only
 
 ---
 
 ## Mission
-You own the real-time control room — the most critical feature for therapists during active sessions. This module uses a **hybrid communication architecture**:
-1. **Inbound Live Stream (WebSocket via Team 5):** Streams live transcripts, detected emotions, and character states in real time.
-2. **Outbound Live Steering (HTTP POST via `axiosClient` → Team 2):** Sends covert therapist instructions to Team 2's REST server using the existing `axiosClient` (Team 2 forwards them internally to Team 3's LLM — the frontend has **NO** direct connection to Team 3).
+You own the real-time control room — the most critical feature for therapists during active sessions. This module implements our **Locked Contract 1 Hybrid Architecture**:
+- **Inbound Real-Time Stream (WebSocket via Team 5):** Streams live transcripts, detected emotions, character states, and session-end notifications.
+- **Outbound Controls (HTTP POST via Team 2 `apiClient`):** Sends covert live steering instructions and ends the session. **There is NO direct frontend connection to Team 3** (Team 2 forwards steering internally to Team 3's LLM).
 
 ---
 
 ## Allowed Directories
 ```
-src/live-session/hooks/        ← WebSocket hook (inbound stream)
+src/live-session/hooks/        ← WebSocket hook (Team 5 inbound stream)
 src/live-session/components/   ← LiveTranscript, LiveSteeringInput
 src/live-session/              ← LiveControlRoomPage.tsx
 ```
 
-**FORBIDDEN:** Do not write to `src/core/`, `src/features/`, `src/components/`, or `src/types/`. Do NOT use any third-party WebSocket libraries — use native `WebSocket` API only.
+**FORBIDDEN:** Do not write to `src/core/`, `src/features/`, `src/components/`, or `src/types/`. Do NOT use third-party WebSocket libraries — use native `WebSocket` API only. Do NOT create a separate API client or env variable for Team 3.
 
 ---
 
-## Business Requirements & Data Models
+## Business Requirements & Data Models (Contract 1 — LOCKED)
 
 ### Live Transcript
 - **Real-Time Dialogue:** Must display the real-time conversation between the child and the AI character as it happens.
-- **Utterance Streaming:** Render speech recognition updates cleanly, distinguishing between interim speech states and finalized utterances, with distinct visual representations for the child and the AI character.
+- **Schema Alignment:** Uses `speaker` (`'CHILD' | 'CHARACTER' | 'THERAPIST_STEERING'`), `content`, and `sequenceNumber`. Renders interim speech updates cleanly and distinguishes speaker roles visually.
 
-### Live Steering (Therapist Intervention)
-- **Covert Real-Time Prompt Injection:** The therapist must have a dedicated input field to inject hidden instructions (e.g., "ask about school", "change tone to empathetic") into the active session without the child seeing or hearing the intervention.
-- **Instruction Capabilities:**
-  - Content Guidance: Steer conversation topics and encourage probing questions without breaking immersion.
-  - Emotional & Behavioral Modulation: Adjust character emotion, intensity, and conversational tone on the fly.
-- **Strict Child Concealment:** Interventions are purely internal to the therapist's control console and transmitted via HTTP `POST` to Team 2's server (which forwards them internally to Team 3's LLM), with zero visual or audible cue delivered to the child.
+### Live Steering (Covert Therapist Intervention)
+- **Covert Real-Time Prompt Injection:** The therapist injects hidden instructions (`instruction`, optional `desiredTone`, optional `suggestedAnimationTriggerId`) via HTTP POST (`POST /sessions/:sessionId/steering`) without the child seeing or hearing the intervention.
+- **Optimistic UI:** On HTTP POST success (`LiveSteeringResponse` with `status: 'FORWARDED'`), show confirmation feedback and optimistically append a `THERAPIST_STEERING` entry to the local transcript view.
 
 ---
 
 ## Rules
 
-### 1. WebSocket Hook (`useLiveSessionSocket`) — Inbound Transcript & Lifecycle
+### WebSocket Hook (`useLiveSessionSocket`)
 - Use native browser `WebSocket` API (no `socket.io`, `ws` package, etc.).
-- Connect to Team 5's WebSocket server: `${VITE_WS_BASE_URL}/sessions/:sessionId`
-- On connect (`onopen`): immediately send `session.join` message with `therapistId` and `token` from `useAuthStore`.
-- Implement auto-reconnect: exponential backoff, max 5 attempts.
-- Expose: `status: ConnectionStatus`, `send(message: ClientMessage): void`, `disconnect(): void`.
-- Clean up (`ws.close()`) on component unmount.
-- **Rule:** Do **NOT** send `steering.text` or `steering.emotion` over WebSocket.
+- Connect to: `${VITE_WS_BASE_URL}/sessions/:sessionId` (Team 5).
+- **Outbound WS is handshake ONLY:** Immediately send `session.join` (`{ type: 'session.join', sessionId, therapistId, token }`) on `onopen`.
+- **NEVER send steering instructions or `session.end` over WebSocket.**
+- Implement auto-reconnect with exponential backoff (up to 5 attempts) and expose `status: ConnectionStatus` (`'connecting' | 'connected' | 'disconnected' | 'reconnecting' | 'error'`) and `disconnect(): void`.
+- Clean up (`ws.close()` + clear reconnect timers) on unmount.
 
-### 2. WebSocket Message Protocol
-All WebSocket messages are JSON. Use the types from `@/types/websocket.types.ts`.
+### Inbound WebSocket Protocol (`ServerMessage` from Team 5)
+All messages are JSON following `@/types/websocket.types.ts`:
+- `{ type: 'transcript.update', payload: { sequenceNumber?, speaker, content, timestamp, isFinal, ttsDirectives?, animationTriggerId? } }` → update live transcript
+- `{ type: 'emotion.detected', payload: { emotion, confidence?, timestamp } }` → update emotion indicator
+- `{ type: 'character.state', payload: { state, animationTriggerId? } }` → update character state/animation indicator
+- `{ type: 'session.ended', payload: { sessionId, endedAt } }` → navigate to `/history`
+- `{ type: 'error', payload: { code?, message } }` → handle/log error
 
-**Server → Client (inbound from Team 5):**
-- `transcript.update` → update transcript list (handle interim vs final)
-- `emotion.detected` → update emotion display
-- `character.state` → update character status indicator
-- `session.ended` → navigate away to `/history`
-- `error` → show error notification
+### Outbound HTTP REST Controls (Team 2 via `apiClient`)
+- **Live Steering:** `POST /sessions/:sessionId/steering`
+  - Request: `LiveSteeringRequest` (`{ instruction: string; desiredTone?: string; suggestedAnimationTriggerId?: string }`)
+  - Response: `LiveSteeringResponse` (`{ sessionId: string; status: 'FORWARDED'; forwardedAt: string }`)
+- **End Session:** `POST /sessions/:sessionId/end`
+  - Response: `Session` (with `status: 'COMPLETED'`)
+  - After calling `/end`, call `disconnect()` on the WebSocket hook and navigate to `/history`.
 
-**Client → Server (outbound lifecycle only):**
-- `session.join` → sent on connection open
-- `session.end` → therapist ends the session
+### Live Transcript (`LiveTranscript`)
+- Display messages in a scrollable list with auto-scroll to the latest message.
+- Visually distinguish `CHILD`, `CHARACTER`, and `THERAPIST_STEERING` entries.
+- Show interim (`!isFinal`) transcripts with opacity/italic indicator.
 
-### 3. Live Steering (`LiveSteeringInput`) — Outbound HTTP POST (via Team 2)
-- Send all steering instructions via standard **HTTP `POST`** using the existing `axiosClient` (`@/core/api/axiosClient.ts`) — do NOT use WebSocket for steering and do NOT create a separate API client for Team 3.
-- **Endpoint:** `POST /api/v1/sessions/:sessionId/steering`
-  - Text payload: `{ type: 'text', instruction: string }`
-  - Emotion payload: `{ type: 'emotion', emotion: string }`
-- Two modes: **Text injection** and **Emotion trigger**.
-  - Text: `Enter` to submit (`Shift+Enter` for newline).
-  - Emotion: grid of 6 emotion buttons, then confirm.
-- **UI Feedback:**
-  - Show a loading/sending state while the `POST` request is in-flight.
-  - On `200 OK`: clear the input, show a brief confirmation indicator (e.g., "הנחיה נשלחה ✓"), and optimistically append the `THERAPIST_STEERING` message to the local `LiveTranscript` view (unless Team 5 echoes it back over WebSocket).
-  - On error: preserve the input text and display a clear retry error message.
-- Disable controls while a request is in-flight or when the session is not active/connected.
+### Live Steering Input (`LiveSteeringInput`)
+- Submits `LiveSteeringRequest` via `apiClient.post('/sessions/' + sessionId + '/steering', payload)`.
+- Supports text instruction (`Enter` to submit, `Shift+Enter` for newline) and quick tone/animation presets.
+- Displays loading state, success/error confirmation feedback, and disables controls while disconnected or sending.
 
-### 4. Live Transcript (`LiveTranscript`)
-- Display messages in a scrollable list.
-- Auto-scroll to the latest message.
-- Distinguish `CHILD`, `CHARACTER`, and `THERAPIST_STEERING` speakers visually (different bubbles/colors).
-- Show interim (non-final) transcripts with visual indicator (opacity/italic).
-
-### 5. TypeScript
-- No `any`. Use `unknown` for raw WS data, then narrow with parsed types.
-- All WebSocket message types imported from `@/types/websocket.types.ts`.
+### TypeScript
+- No `any`. Import all shared types from `@/types/websocket.types.ts` and `@/types/session.types.ts`.
 
 ---
 
 ## Team Contracts
 - `LiveControlRoomPage` receives `sessionId` via `useParams`.
-- `VITE_WS_BASE_URL` from `.env.local` (Team 5 WebSocket server) — do not hardcode URLs.
-- Use the existing `axiosClient` (`@/core/api/axiosClient.ts`, pointing to Team 2's `VITE_REST_API_URL`) for all HTTP `POST` steering requests. Do NOT create a separate API client or env variable for Team 3.
-- Session end triggers navigation to `/history` (react-router `useNavigate`).
+- `VITE_WS_BASE_URL` from `.env.local` — do not hardcode URLs.
+- Session end calls `POST /sessions/:sessionId/end`, disconnects WS, and navigates to `/history`.

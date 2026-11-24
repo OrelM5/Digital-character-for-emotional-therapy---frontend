@@ -9,14 +9,15 @@
 ## Project Overview
 
 **Therapist Back-Office** is a React 18 + Vite + TypeScript SPA used by child therapists to:
-- Manage patient records (CRUD)
-- Configure and launch emotional therapy sessions with 3D animated characters
-- Monitor live sessions in real time (WebSocket) with transcript and emotion detection
-- Review historical session archives
+- Manage patient records (`Patient`, `PatientSummary` — create, read, update; no delete in MVP)
+- Configure and launch emotional therapy sessions with 3D animated characters (`Character`, `AnimationTrigger`, `Session`)
+- Monitor live sessions in real time using our **Locked Contract 1 Hybrid Architecture**
+- Review historical session archives (`SessionDetails`, `TranscriptMessage` keyed by `sequenceNumber`)
 
-**Team integrations:**
-- **Team 2:** REST API backend (Axios client in `src/core/api/`). *Auth status:* Authentication is currently completely MOCKED via `useAuthStore` (`loginWithMock`) with fake JWT token `"mock_jwt_token_12345"`. Do not integrate Supabase. Ilay's agent will swap to Team 2's SpringBoot Spring Security + JWT endpoint (Contract 1) once the backend is ready.
-- **Team 5:** WebSocket server for live session control
+**Team integrations (Contract 1 — LOCKED):**
+- **Team 2 (SpringBoot REST API via `apiClient` in `src/core/api/`):** Handles Auth (`/auth/login`, `/auth/register`, `/therapists/me`), Patients (`/patients`), Characters (`/characters`), Sessions (`/sessions`, `/sessions/:id/notes`), **and** Live Session outbound actions (`POST /sessions/:id/steering` and `POST /sessions/:id/end`). Team 2 forwards steering internally to Team 3's LLM — **the frontend has NO direct connection to Team 3**.
+  - *Auth status:* Authentication is currently completely **MOCKED** via `useAuthStore` (`loginWithMock`) with fake JWT `"mock_jwt_token_12345"`. **Do not integrate Supabase.** Ilay's agent will swap to Team 2's SpringBoot Spring Security + JWT endpoints once ready.
+- **Team 5 (Real-Time Orchestrator WebSocket via `useLiveSessionSocket`):** Strictly inbound real-time stream (`${VITE_WS_BASE_URL}/sessions/:sessionId`) for transcripts, emotions, character states, and session-end events, plus the initial `session.join` handshake only. Do NOT send steering or session-end over WebSocket.
 
 ---
 
@@ -85,7 +86,7 @@
 1. ✅ Read `AGENTS.md` (this file)
 2. ✅ Read your specific SOP in `directives/`
 3. ✅ Run `npm run typecheck` to understand current type state
-4. ✅ Check `src/types/` for the shared type contracts you must use
+4. ✅ Check `src/types/` for the locked Contract 1 shared types you must use
 
 ### Code Quality Standards
 - **TypeScript strict mode** is ON. No `any` types.
@@ -95,6 +96,8 @@
 - **Axios only** for HTTP (via `apiClient` from `@/core/api/axiosClient`).
 - **Native WebSocket only** — no socket.io or other WS libraries.
 - **Tailwind CSS only** for styling — no inline styles, no CSS modules.
+- **No direct Team 3 connection** — never create a separate HTTP client or env var for Team 3.
+- **MVP Exclusions:** Do not add `usePreviousHistory`, `safetyFlag`, or patient deletion.
 
 ### Commit Rules
 - Run `npm run validate-contracts` and ensure exit code 0.
@@ -135,4 +138,4 @@ Copy `.env.example` to `.env.local` to get started.
 
 ---
 
-*Last updated: 2026-11-15 | Maintained by Team Lead*
+*Last updated: 2026-11-24 | Contract 1 Locked | Maintained by Team Lead*

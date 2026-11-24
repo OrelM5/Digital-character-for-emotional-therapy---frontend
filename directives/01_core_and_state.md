@@ -25,23 +25,31 @@ src/core/store/        ← Zustand stores
 ### Role-Based Access Control (RBAC)
 - **Strict Role Isolation:** The system must strictly isolate Therapist access from Child access. The Therapist Back-Office is an authenticated professional portal; child interactions take place on a separate runtime interface with no access to back-office management, patient records, or session notes.
 
-### Therapist Profile Data Requirements
-The therapist profile model must capture and manage:
-- **Personal & Professional Details:** Full name, professional title, contact email, license and registration details.
-- **Specialties:** Specific therapeutic focus areas (e.g., anxiety, ADHD, emotional regulation, trauma, behavioral challenges).
-- **Training & Background:** Clinical certifications, formal education, and specialized workshop training.
-- **Preferred Therapy Methods:** Primary clinical modalities used (e.g., CBT, Play Therapy, Narrative Therapy, Psychodynamic, ACT).
+### Therapist Profile Data Requirements (Contract 1 — LOCKED)
+The `Therapist` interface (`src/types/patient.types.ts`) contains:
+- `id: string`
+- `email: string`
+- `fullName: string`
+- `specialty?: string | null` — clinical specialties & therapy methods (e.g., anxiety, ADHD, CBT)
+- `licenseNumber?: string | null` — professional license / registration number
+- `therapeuticPreferences?: string | null` — guiding therapeutic principles & preferred methods
+- `createdAt?: string`, `updatedAt?: string`
 
 ---
 
 ## Rules
 
-### Authentication (Currently MOCKED via Zustand)
-- **Temporary Mock Flow:** Authentication is currently completely MOCKED via `useAuthStore` (`loginWithMock`). Supabase is not used. The mock flow simulates a 1-second network latency and sets a standard fake JWT token (`"mock_jwt_token_12345"`) and mock `TherapistProfile` into Zustand state.
-- **Preparation for REST API (Contract 1):** Ilay's agent must keep the UI clean and decoupled, prepared to swap `loginWithMock` for the real SpringBoot Spring Security + JWT endpoint (Team 2 REST API Contract 1) once the backend is ready.
-- **Storage & Security:** Use JWT Bearer tokens stored via Zustand `persist` middleware in `localStorage`.
+### Authentication (Currently MOCKED via Zustand — Contract 1 Ready)
+- **Temporary Mock Flow:** Authentication is currently completely MOCKED via `useAuthStore` (`loginWithMock`). **Do NOT integrate Supabase.** The mock flow simulates a 1-second network latency and sets a fake JWT token (`"mock_jwt_token_12345"`) and mock `Therapist` profile into Zustand state.
+- **Locked Contract 1 REST Endpoints (Team 2 SpringBoot):** Prepare the UI and store to swap `loginWithMock` to these exact endpoints once Ilay connects the live backend:
+  | Action | Method | Endpoint | Request / Response Types |
+  |---|---|---|---|
+  | Login | `POST` | `/auth/login` | `LoginRequest` → `AuthResponse` (`accessToken`, `tokenType`, `expiresIn`, `therapist`) |
+  | Register | `POST` | `/auth/register` | `RegisterRequest` (`email`, `password`, `fullName`, `licenseNumber`) → `AuthResponse` |
+  | Get Profile | `GET` | `/therapists/me` | → `Therapist` |
+  | Update Profile | `PUT` | `/therapists/me` | `UpdateTherapistProfileRequest` (`fullName?`, `specialty?`, `therapeuticPreferences?`) → `Therapist` |
+- **Storage & Security:** Store JWT Bearer tokens via Zustand `persist` middleware in `localStorage`. Never store raw passwords in client state.
 - **Store Contract:** `useAuthStore` must expose: `token`, `therapist`, `isAuthenticated`, `isLoading`, `setAuth`, `loginWithMock`, `logout`, `updateProfile`.
-- Never store raw passwords anywhere in client state.
 
 ### Axios Client (`axiosClient.ts`)
 - Single exported instance: `apiClient`.
@@ -51,7 +59,7 @@ The therapist profile model must capture and manage:
 
 ### Routing (`AppRouter.tsx`)
 - Use `BrowserRouter` + `Routes` from `react-router-dom` v6.
-- Protect all non-login routes with a `<RequireAuth>` component that checks `isAuthenticated`.
+- Protect all non-login routes with a `<ProtectedLayout>` guard that checks `isAuthenticated`.
 - Route map:
   ```
   /login                      → LoginPage (public)
@@ -73,7 +81,7 @@ The therapist profile model must capture and manage:
 ### TypeScript
 - All function parameters and return types must be explicitly typed.
 - No `any` types — use `unknown` and narrow with type guards.
-- Import types from `src/types/` only. Never redefine shared types locally.
+- Import types from `@/types/` only. Never redefine shared types locally.
 
 ---
 

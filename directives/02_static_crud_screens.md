@@ -4,7 +4,7 @@
 ---
 
 ## Mission
-You own all data-management screens that interact with the REST API (Team 2 backend). Pages must be functional, RTL-compatible, and display appropriate loading/error/empty states.
+You own all data-management screens that interact with the REST API (Team 2 SpringBoot backend). Pages must be functional, RTL-compatible, and display appropriate loading/error/empty states.
 
 ---
 
@@ -19,33 +19,33 @@ src/features/history/      ← Completed session archive
 
 ---
 
-## Business Requirements & Data Models
+## Business Requirements & Data Models (Contract 1 — LOCKED)
 
-### Patient Card Tracking
-The Patient record and profile card must track the following clinical fields:
-- **Basic Info:** Full name, date of birth, age group, family/guardian contact details.
-- **Emotional Background:** Clinical background, developmental history, and emotional baseline.
-- **Main Challenges:** Primary therapeutic difficulties (e.g., social anxiety, impulsivity, emotional expression).
-- **Interests:** Hobbies, favorite topics, games, and personal interests to build rapport.
-- **Preferred Animation Characters:** Child's chosen or most responsive 3D animated avatars.
-- **Long-Term Goals:** High-level therapeutic milestones and objectives.
-- **Therapist Notes:** Ongoing clinical observations, progress commentary, and confidential annotations.
+> **MVP Scope Exclusions:** `usePreviousHistory` and `safetyFlag` are explicitly **excluded** from MVP. Do not add them to forms, requests, or UI.
 
-### New Session Setup Parameters
-Configuring a new therapy session must capture:
-- **Selected Character:** The 3D animated character assigned for the interaction.
-- **Session Goals:** Immediate objectives for the specific session (e.g., emotion recognition, social skills, anxiety reduction).
-- **Focus Topics:** Specific issues or themes to guide the session towards (e.g., school test, sibling conflict, bedtime anxiety).
-- **Preferred Conversation Tone:** Target interaction style for the AI character (e.g., playful, calm, encouraging, energetic).
-- **Sensitive Topics to Avoid:** Explicit boundaries, trigger words, or subjects the character must steer away from.
+### Patient Card Tracking (`Patient` / `PatientSummary`)
+- `PatientSummary` (list view): `id`, `displayAlias`, `age`, `lastSessionDate: string | null`.
+- `Patient` (full record):
+  - `displayAlias: string` — child's first name / alias used in conversation
+  - `personalDetails: string` — confidential full name & background (never sent to AI)
+  - `age: number`
+  - `emotionalBackground: string` — emotional baseline & main challenges
+  - `interestsAndSafeTopics: string` — hobbies, interests & safe conversation topics
+  - `longTermGoals: string` — long-term therapeutic milestones
+  - `therapistNotes: string` — ongoing therapist observations
+  - `preferredCharacterIds: string[]` — child's preferred 3D character IDs
 
-### Session History & Archive
-Completed session archives must record and display:
-- **Session Metadata:** Date/time scheduled and executed, total duration in minutes.
-- **Character Used:** Identification and avatar of the animated character.
-- **Full Verbatim Transcript:** Complete, turn-by-turn dialogue history between the child and the character.
-- **AI-Generated Summary:** Automated clinical synthesis of emotional states, key moments, and progress highlights.
-- **Manual Therapist Notes:** Post-session clinical evaluation and remarks added by the therapist.
+### Character Catalog (`Character` & `AnimationTrigger`)
+- `Character`: `id`, `name`, `description`, `unityModelAssetId`, `avatarUrl: string | null`, `availableAnimations: AnimationTrigger[]` (`{ animationTriggerId, displayName }`).
+
+### New Session Setup (`CreateSessionRequest` → `Session`)
+- Captures: `patientId`, `characterId`, `sessionGoals`, `focusTopics` (topics & preferred tone), and `sensitiveBoundaries` (topics to avoid).
+- `Session` fields: `id`, `patientId`, `therapistId?`, `characterId`, `status` (`'CREATED' | 'ACTIVE' | 'COMPLETED'`), `sessionGoals`, `focusTopics`, `sensitiveBoundaries`, `startedAt?`, `endedAt?`, `durationSeconds?`, `therapistSessionNotes?`, `aiSummary?`.
+
+### Session History & Archive (`SessionDetails` & `TranscriptMessage`)
+- `SessionDetails extends Session` with `transcript: TranscriptMessage[]`.
+- `TranscriptMessage` has **no `id` field** — it is keyed by `sequenceNumber: number`, with `timestamp`, `speaker` (`'CHILD' | 'CHARACTER' | 'THERAPIST_STEERING'`), `content`, `ttsDirectives: string | null`, and `animationTriggerId: string | null`.
+- Displays session date (`startedAt`), duration (`durationSeconds`), character used, full verbatim transcript, AI-generated summary (`aiSummary`), and editable manual therapist notes (`therapistSessionNotes`).
 
 ---
 
@@ -57,17 +57,19 @@ Completed session archives must record and display:
 - Always handle three UI states: **loading**, **error**, **success/empty**.
 - Use TypeScript generics: `apiClient.get<ResponseType>(url)`.
 
-### REST Endpoints (Team 2 Contract)
-| Screen | Method | Endpoint |
-|---|---|---|
-| Patients list | GET | `/patients?search=&page=&pageSize=` |
-| Patient detail | GET | `/patients/:id` |
-| Patient sessions | GET | `/patients/:id/sessions` |
-| Create patient | POST | `/patients` |
-| Update patient | PATCH | `/patients/:id` |
-| Characters list | GET | `/characters` |
-| Create session | POST | `/sessions` |
-| Session history | GET | `/sessions?status=completed` |
+### Locked REST Endpoints (Team 2 Contract 1)
+| Screen / Action | Method | Endpoint | Types |
+|---|---|---|---|
+| Patients list | `GET` | `/patients` | `PatientSummary[]` / `Patient[]` |
+| Create patient | `POST` | `/patients` | `CreatePatientRequest` → `Patient` |
+| Patient detail | `GET` | `/patients/:id` | → `Patient` |
+| Update patient | `PUT` | `/patients/:id` | `UpdatePatientRequest` → `Patient` |
+| *(Delete patient)* | — | **NO DELETE ENDPOINT** | Not supported in Contract 1 |
+| Characters catalog | `GET` | `/characters` | → `Character[]` |
+| Create session | `POST` | `/sessions` | `CreateSessionRequest` → `Session` |
+| Patient sessions | `GET` | `/patients/:id/sessions` | → `Session[]` |
+| Session details + transcript | `GET` | `/sessions/:id` | → `SessionDetails` |
+| Update session notes | `PATCH` | `/sessions/:id/notes` | `UpdateSessionNotesRequest` (`{ therapistSessionNotes }`) → `Session` |
 
 ### Styling
 - Use Tailwind CSS classes only. No inline styles.
@@ -76,9 +78,8 @@ Completed session archives must record and display:
 - Use `lucide-react` for all icons.
 
 ### TypeScript
-- Import all types from `@/types/` — do not redefine them.
-- Key types: `Patient`, `Session`, `Character`, `PaginatedResponse<T>`, `CreateSessionDto`, `CreatePatientDto`.
-- Use `const [data, setData] = useState<Type[]>([])` patterns.
+- Import all shared types from `@/types/` — do not redefine them.
+- Key types: `Patient`, `PatientSummary`, `CreatePatientRequest`, `UpdatePatientRequest`, `Character`, `AnimationTrigger`, `Session`, `SessionDetails`, `TranscriptMessage`, `CreateSessionRequest`, `UpdateSessionNotesRequest`.
 
 ### Navigation
 - Use `Link` and `useNavigate` from `react-router-dom`.
