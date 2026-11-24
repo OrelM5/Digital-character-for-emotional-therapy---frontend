@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react';
-import { MessageCircle, Bot } from 'lucide-react';
-import type { TranscriptUpdateMessage } from '@/types/websocket.types';
+import { MessageCircle, Bot, ShieldAlert } from 'lucide-react';
+import type { TranscriptSpeaker } from '@/types/session.types';
+import type { TranscriptUpdatePayload } from '@/types/websocket.types';
 
 export interface TranscriptEntry {
-  id: string;
-  speaker: 'child' | 'character';
-  text: string;
-  timestamp: number;
+  sequenceNumber: number;
+  speaker: TranscriptSpeaker;
+  content: string;
+  timestamp: string;
   isFinal: boolean;
+  ttsDirectives?: string | null;
+  animationTriggerId?: string | null;
 }
 
 interface LiveTranscriptProps {
@@ -40,37 +43,68 @@ export function LiveTranscript({ entries }: LiveTranscriptProps) {
           </p>
         )}
 
-        {entries.map((entry) => (
-          <div
-            key={entry.id}
-            className={`flex gap-2 ${entry.speaker === 'character' ? 'flex-row-reverse' : ''}`}
-          >
-            <div
-              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-                entry.speaker === 'character'
-                  ? 'bg-therapy-medium text-white'
-                  : 'bg-gray-200 text-gray-600'
-              }`}
-            >
-              {entry.speaker === 'character' ? (
-                <Bot className="w-4 h-4" />
-              ) : (
-                <MessageCircle className="w-4 h-4" />
-              )}
-            </div>
+        {entries.map((entry) => {
+          if (entry.speaker === 'THERAPIST_STEERING') {
+            return (
+              <div key={`${entry.sequenceNumber}-${entry.timestamp}`} className="flex justify-center">
+                <div className="max-w-[85%] rounded-lg px-3 py-1.5 text-xs bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-2">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    <strong className="font-semibold">הנחיית מטפל סמויה: </strong>
+                    {entry.content}
+                  </span>
+                </div>
+              </div>
+            );
+          }
 
+          const isCharacter = entry.speaker === 'CHARACTER';
+          return (
             <div
-              className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
-                entry.speaker === 'character'
-                  ? 'bg-therapy-soft text-therapy-strong'
-                  : 'bg-white text-gray-800 border border-gray-200'
-              } ${!entry.isFinal ? 'opacity-60 italic' : ''}`}
+              key={`${entry.sequenceNumber}-${entry.timestamp}`}
+              className={`flex gap-2 ${isCharacter ? 'flex-row-reverse' : ''}`}
             >
-              {entry.text}
-              {!entry.isFinal && <span className="animate-pulse"> ...</span>}
+              <div
+                className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+                  isCharacter
+                    ? 'bg-therapy-medium text-white'
+                    : 'bg-gray-200 text-gray-600'
+                }`}
+              >
+                {isCharacter ? (
+                  <Bot className="w-4 h-4" />
+                ) : (
+                  <MessageCircle className="w-4 h-4" />
+                )}
+              </div>
+
+              <div
+                className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
+                  isCharacter
+                    ? 'bg-therapy-soft text-therapy-strong'
+                    : 'bg-white text-gray-800 border border-gray-200'
+                } ${!entry.isFinal ? 'opacity-60 italic' : ''}`}
+              >
+                <p>{entry.content}</p>
+                {!entry.isFinal && <span className="animate-pulse"> ...</span>}
+                {(entry.animationTriggerId || entry.ttsDirectives) && (
+                  <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] opacity-75">
+                    {entry.animationTriggerId && (
+                      <span className="px-1.5 py-0.5 rounded bg-black/5 font-mono">
+                        {entry.animationTriggerId}
+                      </span>
+                    )}
+                    {entry.ttsDirectives && (
+                      <span className="px-1.5 py-0.5 rounded bg-black/5">
+                        {entry.ttsDirectives}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div ref={bottomRef} />
       </div>
@@ -78,13 +112,18 @@ export function LiveTranscript({ entries }: LiveTranscriptProps) {
   );
 }
 
-// Helper to build TranscriptEntry from WS message
-export function transcriptEntryFromMessage(msg: TranscriptUpdateMessage): TranscriptEntry {
+// Helper to build TranscriptEntry from inbound WS payload
+export function transcriptEntryFromPayload(
+  payload: TranscriptUpdatePayload,
+  fallbackSequenceNumber: number,
+): TranscriptEntry {
   return {
-    id: `${msg.sessionId}-${msg.timestamp}`,
-    speaker: msg.speaker,
-    text: msg.text,
-    timestamp: msg.timestamp,
-    isFinal: msg.isFinal,
+    sequenceNumber: payload.sequenceNumber ?? fallbackSequenceNumber,
+    speaker: payload.speaker,
+    content: payload.content,
+    timestamp: payload.timestamp,
+    isFinal: payload.isFinal,
+    ttsDirectives: payload.ttsDirectives ?? null,
+    animationTriggerId: payload.animationTriggerId ?? null,
   };
 }

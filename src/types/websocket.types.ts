@@ -1,98 +1,62 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OWNER: Team Lead  |  DO NOT EDIT without Team Lead approval
-// WebSocket Contract: matches Team 5 (Live Session WS server) message schema
+// Contract 1 (LOCKED): Team 5 Real-Time Orchestrator WebSocket Schema
+// Outbound WS is strictly handshake (`session.join`); steering & session end
+// are sent via Team 2 HTTP REST (`POST /sessions/:id/steering` & `/end`).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Inbound messages (Server → Client) ───────────────────────────────────
-export type ServerMessageType =
-  | 'session.started'
-  | 'session.ended'
-  | 'transcript.update'
-  | 'emotion.detected'
-  | 'character.state'
+import type { TranscriptSpeaker } from './session.types';
+
+export type ConnectionStatus =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'reconnecting'
   | 'error';
 
-export interface BaseServerMessage {
-  type: ServerMessageType;
+// ── Outbound WebSocket handshake (Client → Team 5 WS only) ───────────────
+export type ClientMessage = {
+  type: 'session.join';
   sessionId: string;
-  timestamp: number;           // Unix ms
-}
+  therapistId: string;
+  token: string;
+};
 
-export interface TranscriptUpdateMessage extends BaseServerMessage {
-  type: 'transcript.update';
-  speaker: 'child' | 'character';
-  text: string;
+// ── Inbound WebSocket stream (Team 5 WS → Client) ────────────────────────
+export interface TranscriptUpdatePayload {
+  sequenceNumber?: number;
+  speaker: TranscriptSpeaker;
+  content: string;
+  timestamp: string;
   isFinal: boolean;
+  ttsDirectives?: string | null;
+  animationTriggerId?: string | null;
 }
 
-export interface EmotionDetectedMessage extends BaseServerMessage {
-  type: 'emotion.detected';
+export interface EmotionDetectedPayload {
   emotion: string;
-  confidence: number;
-  faceData?: Record<string, number>;
+  confidence?: number;
+  timestamp: string;
 }
 
-export interface CharacterStateMessage extends BaseServerMessage {
-  type: 'character.state';
-  currentEmotion: string;
-  isAnimating: boolean;
+export interface CharacterStatePayload {
+  state: 'idle' | 'listening' | 'thinking' | 'speaking';
+  animationTriggerId?: string | null;
 }
 
-export interface SessionEndedMessage extends BaseServerMessage {
-  type: 'session.ended';
-  reason: 'natural' | 'therapist-ended' | 'error';
+export interface SessionEndedPayload {
+  sessionId: string;
+  endedAt: string;
 }
 
-export interface WsErrorMessage extends BaseServerMessage {
-  type: 'error';
-  code: string;
+export interface WsErrorPayload {
+  code?: string;
   message: string;
 }
 
 export type ServerMessage =
-  | TranscriptUpdateMessage
-  | EmotionDetectedMessage
-  | CharacterStateMessage
-  | SessionEndedMessage
-  | WsErrorMessage;
-
-// ── Outbound messages (Client → Server) ──────────────────────────────────
-export type ClientMessageType =
-  | 'session.join'
-  | 'session.end'
-  | 'steering.text'
-  | 'steering.emotion'
-  | 'character.command';
-
-export interface BaseClientMessage {
-  type: ClientMessageType;
-  sessionId: string;
-}
-
-export interface JoinSessionMessage extends BaseClientMessage {
-  type: 'session.join';
-  therapistId: string;
-  token: string;
-}
-
-export interface SteeringTextMessage extends BaseClientMessage {
-  type: 'steering.text';
-  text: string;                // Therapist's text injection for the character
-}
-
-export interface SteeringEmotionMessage extends BaseClientMessage {
-  type: 'steering.emotion';
-  emotion: string;
-  intensity: number;
-}
-
-export interface EndSessionMessage extends BaseClientMessage {
-  type: 'session.end';
-  therapistRemarks?: string;
-}
-
-export type ClientMessage =
-  | JoinSessionMessage
-  | SteeringTextMessage
-  | SteeringEmotionMessage
-  | EndSessionMessage;
+  | { type: 'transcript.update'; payload: TranscriptUpdatePayload }
+  | { type: 'emotion.detected'; payload: EmotionDetectedPayload }
+  | { type: 'character.state'; payload: CharacterStatePayload }
+  | { type: 'session.ended'; payload: SessionEndedPayload }
+  | { type: 'error'; payload: WsErrorPayload };

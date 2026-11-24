@@ -1,88 +1,105 @@
 import { apiClient } from '@/core/api/axiosClient';
-import type {
-  CharacterProfile,
-  CreateSessionRequest,
-  CreateSessionResponse,
-} from '../types/sessionSetup.types';
+import type { Character } from '@/types/character.types';
+import type { Session, CreateSessionRequest } from '@/types/session.types';
 
 export const USE_MOCK = true;
 
-const MOCK_CHARACTERS: CharacterProfile[] = [
+const COMMON_ANIMATIONS = [
+  { animationTriggerId: 'IDLE_LISTEN', displayName: 'הקשבה רגועה' },
+  { animationTriggerId: 'WAVE_HELLO', displayName: 'נפנוף לשלום' },
+  { animationTriggerId: 'THINKING', displayName: 'חשיבה וסקרנות' },
+  { animationTriggerId: 'CLAP_HAPPY', displayName: 'מחיאות כפיים ושמחה' },
+  { animationTriggerId: 'EMPATHIC_NOD', displayName: 'הנהון אמפתי' },
+  { animationTriggerId: 'HUG_GESTURE', displayName: 'תנועת חיבוק' },
+];
+
+const MOCK_CHARACTERS: Character[] = [
   {
-    id: 'char-bear',
+    id: 'char_bobi',
     name: 'בובי הדובון',
     description:
       'דובון חם, מכיל וסבלני במיוחד בעל קול רך ומרגיע. מתאים להפחתת חרדה, יצירת מרחב בטוח וסיוע בפרידה מהורים.',
-    personalityTraits: ['רגוע', 'מכיל', 'אמפתי', 'חם', 'סבלני'],
-    avatarUrl: 'https://images.unsplash.com/photo-1559454403-b8fb88521f11?w=200&auto=format&fit=crop&q=80',
-    gender: 'neutral',
-    ageTarget: 'גילאי 4-9',
+    unityModelAssetId: 'unity_bear_bobi_v1',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1559454403-b8fb88521f11?w=200&auto=format&fit=crop&q=80',
+    availableAnimations: COMMON_ANIMATIONS,
   },
   {
-    id: 'char-fox',
+    id: 'char_lili',
     name: 'לילי השועלה',
     description:
       'שועלה סקרנית, שנונה ועליזה. מעולה למשחקי תפקידים, לעידוד פתרון בעיות יצירתי, תקשורת והתמודדות עם תסכולים במשחק.',
-    personalityTraits: ['שובבה', 'חכמה', 'סקרנית', 'מעודדת', 'יצירתית'],
-    avatarUrl: 'https://images.unsplash.com/photo-1516934024742-b461fba47600?w=200&auto=format&fit=crop&q=80',
-    gender: 'female',
-    ageTarget: 'גילאי 6-12',
+    unityModelAssetId: 'unity_fox_lili_v1',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1516934024742-b461fba47600?w=200&auto=format&fit=crop&q=80',
+    availableAnimations: COMMON_ANIMATIONS,
   },
   {
-    id: 'char-owl',
+    id: 'char_oli',
     name: 'אולי הינשוף',
     description:
       'ינשוף חכם ושקול עם משקפיים עגולים. עוזר לילדים לחקור רגשות בצורה הגיונית, לזהות מחשבות מכשילות ולפתח כלים קוגניטיביים.',
-    personalityTraits: ['חכם', 'שקול', 'קשוב', 'אנליטי', 'מרגיע'],
-    avatarUrl: 'https://images.unsplash.com/photo-1543549790-8b5f4a028cfb?w=200&auto=format&fit=crop&q=80',
-    gender: 'male',
-    ageTarget: 'גילאי 8-14',
+    unityModelAssetId: 'unity_owl_oli_v1',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1543549790-8b5f4a028cfb?w=200&auto=format&fit=crop&q=80',
+    availableAnimations: COMMON_ANIMATIONS,
   },
   {
-    id: 'char-rabbit',
-    name: 'רומי הארנבת',
+    id: 'char_leo',
+    name: 'ליאו האריה',
     description:
-      'ארנבת עדינה ורגישה שגם היא לפעמים חווה פחדים ודפיקות לב. מייצרת הזדהות עמוקה סביב ביישנות, חרדה חברתית ודימוי עצמי.',
-    personalityTraits: ['עדינה', 'רגישה', 'כנה', 'משתפת', 'מבינה'],
-    avatarUrl: 'https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=200&auto=format&fit=crop&q=80',
-    gender: 'female',
-    ageTarget: 'גילאי 5-11',
+      'אריה אמיץ אך רגיש שגם הוא לפעמים מרגיש פרפרים בבטן. מייצר הזדהות עמוקה סביב אומץ, ביישנות וחרדה חברתית.',
+    unityModelAssetId: 'unity_lion_leo_v1',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1585110396000-c9ffd4e4b308?w=200&auto=format&fit=crop&q=80',
+    availableAnimations: COMMON_ANIMATIONS,
   },
   {
-    id: 'char-dragon',
+    id: 'char_kai',
     name: 'קאי הדרקון הקטן',
     description:
       'דרקון חמוד שלומד איך לא להוציא אש כשהוא כועס! מושלם לעבודה על שליטה בכעסים, ויסות רגשי ואימפולסיביות.',
-    personalityTraits: ['אנרגטי', 'לומד ויסות', 'אמיץ', 'אוהב לעזור', 'מצחיק'],
-    avatarUrl: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=200&auto=format&fit=crop&q=80',
-    gender: 'male',
-    ageTarget: 'גילאי 5-10',
+    unityModelAssetId: 'unity_dragon_kai_v1',
+    avatarUrl:
+      'https://images.unsplash.com/photo-1563089145-599997674d42?w=200&auto=format&fit=crop&q=80',
+    availableAnimations: COMMON_ANIMATIONS,
   },
 ];
 
-export async function getCharacters(): Promise<CharacterProfile[]> {
+export async function getCharacters(): Promise<Character[]> {
   if (USE_MOCK) {
     await new Promise((resolve) => setTimeout(resolve, 120));
     return [...MOCK_CHARACTERS];
   }
 
-  const response = await apiClient.get<CharacterProfile[]>('/characters');
+  const response = await apiClient.get<Character[]>('/characters');
   return response.data;
 }
 
 export async function createSession(
   payload: CreateSessionRequest,
-): Promise<CreateSessionResponse> {
+): Promise<Session> {
   if (USE_MOCK) {
     await new Promise((resolve) => setTimeout(resolve, 250));
-    const sessionId = `sess-${Date.now()}`;
+    const now = new Date().toISOString();
     return {
-      sessionId,
-      status: 'scheduled',
+      id: `sess-${Date.now()}`,
+      patientId: payload.patientId,
+      therapistId: 'therapist-mock-001',
+      characterId: payload.characterId,
+      status: 'CREATED',
+      sessionGoals: payload.sessionGoals,
+      focusTopics: payload.focusTopics,
+      sensitiveBoundaries: payload.sensitiveBoundaries,
+      startedAt: now,
+      endedAt: null,
+      durationSeconds: null,
+      therapistSessionNotes: null,
+      aiSummary: null,
     };
   }
 
-  const response = await apiClient.post<CreateSessionResponse>('/sessions', payload);
+  const response = await apiClient.post<Session>('/sessions', payload);
   return response.data;
 }
 

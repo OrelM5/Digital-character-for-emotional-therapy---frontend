@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import {
   Sparkles,
@@ -7,8 +7,6 @@ import {
   ShieldAlert,
   User,
   CheckCircle2,
-  Plus,
-  X,
   Target,
   RefreshCw,
   AlertCircle,
@@ -17,13 +15,11 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { getPatients } from '@/features/patients/api/patientsApi';
-import type { Patient } from '@/features/patients/types/patient.types';
+import type { Patient } from '@/types/patient.types';
+import type { Character } from '@/types/character.types';
+import type { CreateSessionRequest } from '@/types/session.types';
 import { getCharacters, createSession } from '../api/sessionSetupApi';
-import type {
-  CharacterProfile,
-  SessionSetupPageProps,
-  CreateSessionRequest,
-} from '../types/sessionSetup.types';
+import type { SessionSetupPageProps } from '../types/sessionSetup.types';
 
 const COMMON_FOCUS_TOPICS = [
   'הסתגלות לבית ספר',
@@ -52,12 +48,11 @@ export function SessionSetupPage({
     preselectedPatientId || searchParams.get('patientId') || '';
 
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [characters, setCharacters] = useState<CharacterProfile[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState(initialPatientId);
   const [selectedCharacterId, setSelectedCharacterId] = useState('');
   const [sessionGoals, setSessionGoals] = useState('');
-  const [focusTopics, setFocusTopics] = useState<string[]>([]);
-  const [topicInput, setTopicInput] = useState('');
+  const [focusTopics, setFocusTopics] = useState('');
   const [sensitiveBoundaries, setSensitiveBoundaries] = useState('');
 
   const [initialLoading, setInitialLoading] = useState(true);
@@ -65,7 +60,6 @@ export function SessionSetupPage({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Load patients and characters catalog
   useEffect(() => {
     let mounted = true;
     setInitialLoading(true);
@@ -77,12 +71,10 @@ export function SessionSetupPage({
         setPatients(patientsData);
         setCharacters(charactersData);
 
-        // Preselect character
         if (charactersData.length > 0 && !selectedCharacterId) {
           setSelectedCharacterId(charactersData[0].id);
         }
 
-        // If no patient preselected and patients exist, set first or preserve query param
         if (initialPatientId && patientsData.some((p) => p.id === initialPatientId)) {
           setSelectedPatientId(initialPatientId);
         } else if (patientsData.length > 0 && !selectedPatientId) {
@@ -105,35 +97,17 @@ export function SessionSetupPage({
   const selectedPatient = patients.find((p) => p.id === selectedPatientId);
   const selectedCharacter = characters.find((c) => c.id === selectedCharacterId);
 
-  // Focus topic tags management
-  const handleAddTopic = (topicToAdd?: string) => {
-    const value = (topicToAdd || topicInput).trim();
-    if (!value) return;
-    if (!focusTopics.includes(value)) {
-      setFocusTopics((prev) => [...prev, value]);
-    }
-    if (!topicToAdd) {
-      setTopicInput('');
-    }
-  };
-
-  const handleTopicKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      handleAddTopic();
-    }
-  };
-
-  const handleRemoveTopic = (topicToRemove: string) => {
-    setFocusTopics((prev) => prev.filter((t) => t !== topicToRemove));
+  const appendFocusTopic = (topic: string) => {
+    setFocusTopics((prev) => {
+      if (!prev.trim()) return topic;
+      if (prev.includes(topic)) return prev;
+      return `${prev}, ${topic}`;
+    });
   };
 
   const handleImportPatientInterests = () => {
-    if (!selectedPatient?.interests) return;
-    const newTopics = selectedPatient.interests.filter((i) => !focusTopics.includes(i));
-    if (newTopics.length > 0) {
-      setFocusTopics((prev) => [...prev, ...newTopics]);
-    }
+    if (!selectedPatient?.interestsAndSafeTopics) return;
+    appendFocusTopic(selectedPatient.interestsAndSafeTopics);
   };
 
   const validate = (): boolean => {
@@ -145,10 +119,8 @@ export function SessionSetupPage({
     if (!selectedCharacterId) {
       newErrors.character = 'יש לבחור דמות מונפשת להובלת המפגש';
     }
-    if (!sessionGoals.trim()) {
-      newErrors.sessionGoals = 'נא להגדיר את מטרות המפגש והנחיות הפתיחה';
-    } else if (sessionGoals.trim().length < 5) {
-      newErrors.sessionGoals = 'מטרות המפגש קצרות מדי (לפחות 5 תווים)';
+    if (!sessionGoals.trim() || sessionGoals.trim().length < 5) {
+      newErrors.sessionGoals = 'נא להגדיר את מטרות המפגש והנחיות הפתיחה (לפחות 5 תווים)';
     }
 
     setErrors(newErrors);
@@ -165,16 +137,16 @@ export function SessionSetupPage({
         patientId: selectedPatientId,
         characterId: selectedCharacterId,
         sessionGoals: sessionGoals.trim(),
-        focusTopics,
+        focusTopics: focusTopics.trim(),
         sensitiveBoundaries: sensitiveBoundaries.trim(),
       };
 
-      const response = await createSession(payload);
+      const createdSession = await createSession(payload);
 
       if (onSessionCreated) {
-        onSessionCreated(response.sessionId);
+        onSessionCreated(createdSession.id);
       } else {
-        navigate(`/sessions/${response.sessionId}/live`);
+        navigate(`/sessions/${createdSession.id}/live`);
       }
     } catch {
       setErrors((prev) => ({
@@ -199,7 +171,10 @@ export function SessionSetupPage({
 
   if (loadError) {
     return (
-      <div dir="rtl" className="max-w-2xl mx-auto p-6 bg-red-50 border border-red-200 rounded-xl text-center space-y-4">
+      <div
+        dir="rtl"
+        className="max-w-2xl mx-auto p-6 bg-red-50 border border-red-200 rounded-xl text-center space-y-4"
+      >
         <AlertCircle className="w-8 h-8 text-red-600 mx-auto" />
         <h3 className="text-base font-semibold text-red-800">{loadError}</h3>
         <Button variant="secondary" onClick={() => window.location.reload()}>
@@ -282,7 +257,7 @@ export function SessionSetupPage({
               <option value="">-- בחר מטופל/ת --</option>
               {patients.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.firstName} {p.lastName} (גיל {p.age})
+                  {p.displayAlias} (גיל {p.age})
                 </option>
               ))}
             </select>
@@ -297,7 +272,7 @@ export function SessionSetupPage({
               <div className="flex items-center justify-between text-gray-600">
                 <span className="flex items-center gap-1.5 font-medium text-gray-900">
                   <User className="w-4 h-4 text-therapy-medium" />
-                  {selectedPatient.firstName} {selectedPatient.lastName}
+                  {selectedPatient.displayAlias}
                 </span>
                 <span className="text-gray-400">מזהה: {selectedPatient.id}</span>
               </div>
@@ -307,26 +282,18 @@ export function SessionSetupPage({
                 {selectedPatient.emotionalBackground}
               </div>
 
-              {selectedPatient.interests && selectedPatient.interests.length > 0 && (
+              {selectedPatient.interestsAndSafeTopics && (
                 <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-semibold text-gray-700">תחומי עניין:</span>
-                    {selectedPatient.interests.map((interest) => (
-                      <span
-                        key={interest}
-                        className="px-2 py-0.5 rounded-md bg-white border border-gray-200 text-gray-700"
-                      >
-                        {interest}
-                      </span>
-                    ))}
+                  <div className="text-gray-600">
+                    <span className="font-semibold text-gray-700">תחומי עניין ונושאים בטוחים: </span>
+                    {selectedPatient.interestsAndSafeTopics}
                   </div>
-
                   <button
                     type="button"
                     onClick={handleImportPatientInterests}
                     className="text-therapy-medium hover:text-therapy-strong font-medium underline text-xs transition-colors"
                   >
-                    + הוסף תחומי עניין כנושאי מיקוד
+                    + הוסף לנושאי המיקוד
                   </button>
                 </div>
               )}
@@ -367,7 +334,6 @@ export function SessionSetupPage({
                       : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50/50'
                   }`}
                 >
-                  {/* Selected check badge */}
                   {isSelected && (
                     <div className="absolute top-3 left-3 w-6 h-6 rounded-full bg-therapy-medium text-white flex items-center justify-center shadow-xs">
                       <CheckCircle2 className="w-4 h-4" />
@@ -375,47 +341,48 @@ export function SessionSetupPage({
                   )}
 
                   <div className="space-y-2.5">
-                    {/* Character Avatar & Name */}
                     <div className="flex items-center gap-3">
-                      <img
-                        src={character.avatarUrl}
-                        alt={character.name}
-                        className="w-12 h-12 rounded-full object-cover border border-purple-200 bg-purple-50 shrink-0"
-                        onError={(e) => {
-                          // Fallback placeholder if image load fails
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
+                      {character.avatarUrl ? (
+                        <img
+                          src={character.avatarUrl}
+                          alt={character.name}
+                          className="w-12 h-12 rounded-full object-cover border border-purple-200 bg-purple-50 shrink-0"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-purple-100 text-therapy-strong font-bold flex items-center justify-center shrink-0">
+                          {character.name.slice(0, 1)}
+                        </div>
+                      )}
                       <div>
                         <h3 className="font-bold text-gray-900 text-sm">
                           {character.name}
                         </h3>
-                        {character.ageTarget && (
-                          <span className="text-xs text-therapy-strong font-medium">
-                            {character.ageTarget}
-                          </span>
-                        )}
+                        <span className="text-[11px] text-gray-400 font-mono">
+                          {character.unityModelAssetId}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Description */}
                     <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">
                       {character.description}
                     </p>
                   </div>
 
-                  {/* Personality Traits Chips */}
+                  {/* Available Animations Chips */}
                   <div className="mt-3 pt-2.5 border-t border-gray-100 flex flex-wrap gap-1">
-                    {character.personalityTraits.map((trait) => (
+                    {character.availableAnimations.slice(0, 4).map((anim) => (
                       <span
-                        key={trait}
+                        key={anim.animationTriggerId}
                         className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
                           isSelected
                             ? 'bg-white text-therapy-strong border border-purple-200'
                             : 'bg-gray-100 text-gray-600'
                         }`}
                       >
-                        {trait}
+                        {anim.displayName}
                       </span>
                     ))}
                   </div>
@@ -428,14 +395,14 @@ export function SessionSetupPage({
             <div className="text-xs text-gray-500 bg-purple-50/50 p-2.5 rounded-lg border border-purple-100 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-therapy-medium shrink-0" />
               <span>
-                נבחרה הדמות: <strong>{selectedCharacter.name}</strong> — הדמות תפעל בסגנון{' '}
-                <strong>{selectedCharacter.personalityTraits.join(', ')}</strong>.
+                נבחרה הדמות: <strong>{selectedCharacter.name}</strong> — זמינות{' '}
+                <strong>{selectedCharacter.availableAnimations.length}</strong> אנימציות תגובה.
               </span>
             </div>
           )}
         </Card>
 
-        {/* Step 3: Session Goals & Opening Instructions */}
+        {/* Step 3: Session Goals */}
         <Card padding="lg" className="space-y-4 border-gray-200 shadow-xs">
           <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
             <span className="w-6 h-6 rounded-full bg-therapy-medium text-white text-xs font-bold flex items-center justify-center">
@@ -446,22 +413,19 @@ export function SessionSetupPage({
             </h2>
           </div>
 
-          <div>
-            <Input
-              as="textarea"
-              label="הנחיות לדמות (איך לפתוח את המפגש, מה לבחון ומה המטרה המרכזית) *"
-              placeholder="לדוגמה: הדמות תפתח בשיחת חולין על לגו כדי לבנות קרבה ואמון. בהמשך תעלה בעדינות את החשש מהמבחן מחר, תעודד את הילד לתאר איפה הוא מרגיש את הפחד בגוף ותתרגל איתו 3 נשימות עמוקות..."
-              value={sessionGoals}
-              onChange={(e) => setSessionGoals(e.target.value)}
-              error={errors.sessionGoals}
-              rows={4}
-            />
-          </div>
+          <Input
+            as="textarea"
+            label="הנחיות לדמות (איך לפתוח את המפגש, מה לבחון ומה המטרה המרכזית) *"
+            placeholder="לדוגמה: הדמות תפתח בשיחת חולין על לגו כדי לבנות קרבה ואמון. בהמשך תעלה בעדינות את החשש מהמבחן מחר..."
+            value={sessionGoals}
+            onChange={(e) => setSessionGoals(e.target.value)}
+            error={errors.sessionGoals}
+            rows={4}
+          />
 
-          {/* Suggested Quick Goals */}
           <div className="space-y-1.5 pt-1">
             <span className="text-xs text-gray-500 font-medium">
-              הצעות מהירות ליעדי מפגש (לחץ להעתקה):
+              הצעות מהירות ליעדי מפגש (לחץ להוספה):
             </span>
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTED_GOALS.map((suggestion) => (
@@ -482,7 +446,7 @@ export function SessionSetupPage({
           </div>
         </Card>
 
-        {/* Step 4: Focus Topics (Dynamic Tag Input) */}
+        {/* Step 4: Focus Topics & Desired Tone */}
         <Card padding="lg" className="space-y-4 border-gray-200 shadow-xs">
           <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <div className="flex items-center gap-2">
@@ -490,87 +454,40 @@ export function SessionSetupPage({
                 4
               </span>
               <h2 className="text-base font-bold text-gray-900">
-                נושאי מיקוד לשיחה (Focus Topics)
+                נושאי מיקוד וטון שיחה רצוי (Focus Topics)
               </h2>
             </div>
             <span className="text-xs text-gray-400">אופציונלי אך מומלץ</span>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              הוסף נושאים או מילים מרכזיות שהדמות תתייחס אליהם
-            </label>
-            <div className="flex gap-2 mb-2">
-              <input
-                type="text"
-                placeholder="הקלד נושא מיקוד (לדוגמה: מבחן במתמטיקה, מריבה בהפסקה) ולחץ אנטר"
-                value={topicInput}
-                onChange={(e) => setTopicInput(e.target.value)}
-                onKeyDown={handleTopicKeyDown}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-colors"
-              />
-              <Button
+          <Input
+            as="textarea"
+            label="נושאים מרכזיים וסגנון/טון שיחה מועדף (שובב, רגוע, מכיל וכו׳)"
+            placeholder="לדוגמה: הסתגלות לבית הספר, חרדת פרידה בבוקר — טון שיחה רגוע, חם ומעודד..."
+            value={focusTopics}
+            onChange={(e) => setFocusTopics(e.target.value)}
+            rows={2}
+          />
+
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <Target className="w-3 h-3 text-brand-500" />
+              נושאים נפוצים:
+            </span>
+            {COMMON_FOCUS_TOPICS.map((topic) => (
+              <button
+                key={topic}
                 type="button"
-                variant="secondary"
-                size="sm"
-                icon={<Plus className="w-4 h-4" />}
-                onClick={() => handleAddTopic()}
+                onClick={() => appendFocusTopic(topic)}
+                className="text-xs px-2 py-0.5 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
               >
-                הוסף נושא
-              </Button>
-            </div>
-
-            {/* Selected Focus Topics */}
-            {focusTopics.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {focusTopics.map((topic) => (
-                  <span
-                    key={topic}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-brand-50 text-brand-700 border border-brand-200"
-                  >
-                    <span>{topic}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTopic(topic)}
-                      className="text-brand-500 hover:text-brand-800 transition-colors"
-                      title="הסר"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Quick Suggestions for topics */}
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-xs text-gray-400 flex items-center gap-1">
-                <Target className="w-3 h-3 text-brand-500" />
-                נושאים נפוצים:
-              </span>
-              {COMMON_FOCUS_TOPICS.map((topic) => {
-                const isSelected = focusTopics.includes(topic);
-                return (
-                  <button
-                    key={topic}
-                    type="button"
-                    disabled={isSelected}
-                    onClick={() => handleAddTopic(topic)}
-                    className={`text-xs px-2 py-0.5 rounded-md transition-colors ${
-                      isSelected
-                        ? 'bg-gray-100 text-gray-400 cursor-default'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    + {topic}
-                  </button>
-                );
-              })}
-            </div>
+                + {topic}
+              </button>
+            ))}
           </div>
         </Card>
 
-        {/* Step 5: Safety & Sensitive Boundaries (Highlighted Safety Section) */}
+        {/* Step 5: Safety & Sensitive Boundaries */}
         <div className="p-6 bg-gradient-to-br from-amber-50 to-orange-50/50 rounded-2xl border-2 border-amber-300/80 shadow-xs space-y-4">
           <div className="flex items-start gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
@@ -587,21 +504,18 @@ export function SessionSetupPage({
               </div>
               <p className="text-xs text-amber-800 mt-1 leading-relaxed">
                 הגדר במפורש נושאים, מילים או חוויות שהדמות המונפשת{' '}
-                <strong>מחויבת להימנע מהם לחלוטין</strong>. הנחיות אלו יוזרקו ישירות כגבולות
-                קשיחים (Hard Constraints) למודל השיחה של הדמות.
+                <strong>מחויבת להימנע מהם לחלוטין</strong>.
               </p>
             </div>
           </div>
 
-          <div>
-            <textarea
-              className="w-full border border-amber-300 rounded-xl px-3.5 py-2.5 text-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors leading-relaxed"
-              rows={3}
-              placeholder="לדוגמה: לא להעלות שיחה על גירושי ההורים, לא לדבר על חיות מחמד שנפטרו, להימנע לחלוטין משימוש במילה 'פחדן', לא ללחוץ על הילד לשתף אם מסרב..."
-              value={sensitiveBoundaries}
-              onChange={(e) => setSensitiveBoundaries(e.target.value)}
-            />
-          </div>
+          <textarea
+            className="w-full border border-amber-300 rounded-xl px-3.5 py-2.5 text-sm bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors leading-relaxed"
+            rows={3}
+            placeholder="לדוגמה: לא להעלות שיחה על גירושי ההורים, לא לדבר על חיות מחמד שנפטרו..."
+            value={sensitiveBoundaries}
+            onChange={(e) => setSensitiveBoundaries(e.target.value)}
+          />
         </div>
 
         {/* Action Buttons */}

@@ -1,44 +1,69 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // OWNER: Team Lead  |  DO NOT EDIT without Team Lead approval
-// API Contract: matches Team 2 (REST) backend schemas
+// Contract 1 (LOCKED): Team 2 SpringBoot REST API — Auth, Therapists & Patients
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface TherapistProfile {
+export interface Therapist {
   id: string;
-  name: string;
   email: string;
-  createdAt: string;
+  fullName: string;
+  specialty?: string | null;
+  licenseNumber?: string | null;
+  therapeuticPreferences?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export type AgeGroup = 'toddler' | 'preschool' | 'school-age' | 'teenager';
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  fullName: string;
+  licenseNumber: string;
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  therapist: Therapist;
+}
+
+export interface UpdateTherapistProfileRequest {
+  fullName?: string;
+  specialty?: string;
+  therapeuticPreferences?: string;
+}
+
+export interface PatientSummary {
+  id: string;
+  displayAlias: string;
+  age: number;
+  lastSessionDate: string | null;
+}
 
 export interface Patient {
   id: string;
-  therapistId: string;
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;         // ISO 8601 date string
-  ageGroup: AgeGroup;
-  diagnosis?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
+  therapistId?: string;
+  displayAlias: string;
+  personalDetails: string;
+  age: number;
+  emotionalBackground: string;
+  interestsAndSafeTopics: string;
+  longTermGoals: string;
+  therapistNotes: string;
+  preferredCharacterIds: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export interface CreatePatientDto {
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;
-  ageGroup: AgeGroup;
-  diagnosis?: string;
-  notes?: string;
-}
+export type CreatePatientRequest = Omit<
+  Patient,
+  'id' | 'therapistId' | 'createdAt' | 'updatedAt'
+>;
 
-export interface UpdatePatientDto extends Partial<CreatePatientDto> {}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
+export type UpdatePatientRequest = Partial<CreatePatientRequest>;

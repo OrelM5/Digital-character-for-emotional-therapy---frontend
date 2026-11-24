@@ -1,82 +1,63 @@
 import { apiClient } from '@/core/api/axiosClient';
 import type {
   Patient,
-  CreatePatientInput,
-  UpdatePatientInput,
-} from '../types/patient.types';
+  CreatePatientRequest,
+  UpdatePatientRequest,
+} from '@/types/patient.types';
 
 export const USE_MOCK = true;
 
 let mockPatients: Patient[] = [
   {
     id: 'pat-1',
-    firstName: 'איתמר',
-    lastName: 'לוי',
+    therapistId: 'therapist-mock-001',
+    displayAlias: 'איתמר',
+    personalDetails: 'איתמר לוי, תלמיד כיתה ב׳, בן בכור במשפחה של 2 ילדים',
     age: 8,
     emotionalBackground:
       'מתמודד עם חרדת פרידה מוגברת וקשיי הסתגלות למסגרת בית ספרית. מגיב בעוצמה רגשית גבוהה בעת מעברים ושינויים בשגרה.',
-    interests: ['לגו והרכבות', 'ציור קומיקס', 'משחקי חלל', 'דינוזאורים'],
+    interestsAndSafeTopics: 'לגו והרכבות, ציור קומיקס, משחקי חלל, דינוזאורים',
     longTermGoals:
       'חיזוק תחושת הביטחון העצמי, פיתוח אסטרטגיות הרגעה עצמית ומתן כלים לוויסות חרדה בעת פרידה מההורים.',
-    ongoingNotes:
+    therapistNotes:
       'ניכרת פתיחות רבה מול הדמות המונפשת. שיתף ביוזמתו על פחדים בלילה ועל תחושת בדידות בהפסקות.',
+    preferredCharacterIds: ['char_bobi', 'char_leo'],
     createdAt: '2026-01-15T08:30:00Z',
+    updatedAt: '2026-03-12T15:00:00Z',
   },
   {
     id: 'pat-2',
-    firstName: 'מאיה',
-    lastName: 'כהן',
+    therapistId: 'therapist-mock-001',
+    displayAlias: 'מאיה',
+    personalDetails: 'מאיה כהן, גן חובה, מתגוררת עם שני הוריה ואחות גדולה',
     age: 6,
     emotionalBackground:
       'קשיים בוויסות רגשי וסף תסכול נמוך. נוטה להתפרצויות זעם כאשר אינה מנצחת במשחקים או כשנתקלת במכשול מתסכל.',
-    interests: ['חיות מחמד ווטרינריה', 'פלסטלינה ויצירה', 'שירי ילדים', 'ריקוד'],
+    interestsAndSafeTopics: 'חיות מחמד ווטרינריה, פלסטלינה ויצירה, שירי ילדים, ריקוד',
     longTermGoals:
       'זיהוי תחושות גופניות מקדימות לתסכול, תרגול טכניקות עצירה ונשימה, וחיזוק יכולת ההתמדה בעת אתגר.',
-    ongoingNotes:
+    therapistNotes:
       'מדגימה שיפור ביכולת להירגע בסיוע הדמות. הצליחה להשלים משימה מאתגרת במשחק תפקידים ללא התפרצות.',
+    preferredCharacterIds: ['char_lili', 'char_kai'],
     createdAt: '2026-02-01T10:15:00Z',
+    updatedAt: '2026-03-10T12:00:00Z',
   },
   {
     id: 'pat-3',
-    firstName: 'נועם',
-    lastName: 'ברקוביץ׳',
-    age: 10,
+    therapistId: 'therapist-mock-001',
+    displayAlias: 'דניאל',
+    personalDetails: 'דניאל מזרחי, כיתה ה׳, לומד בבית ספר יסודי מקומי',
+    age: 11,
     emotionalBackground:
-      'חרדה חברתית מובהקת, ביישנות והימנעות מוחלטת משיח מול קבוצת השווים. דימוי עצמי נמוך ותחושת חוסר שייכות.',
-    interests: ['תכנות סקראץ׳', 'מיינקראפט', 'רובוטיקה', 'אורגנית'],
+      'ביישנות חברתית וחשש מביקורת. מתקשה ליזום שיחה עם בני גילו ונמנע מהשתתפות בשיעורים.',
+    interestsAndSafeTopics: 'כדורגל, מיינקראפט, קומיקס גיבורי על, אסטרונומיה',
     longTermGoals:
-      'הרחבת מעגל התקשורת החברתית, העלאת תחושת המסוגלות העצמית והפחתת דפוסי הימנעות חברתיים.',
-    ongoingNotes:
-      'התחבר מיד לדמות המדען הווירטואלי. החל לתרגל משפטי פנייה לחברים לכיתה בהנחיית הדמות.',
-    createdAt: '2026-02-18T14:00:00Z',
-  },
-  {
-    id: 'pat-4',
-    firstName: 'שירה',
-    lastName: 'אזולאי',
-    age: 7,
-    emotionalBackground:
-      'התמודדות עם משבר גירושין במשפחה. קושי בביטוי רגשות מורכבים כמו כעס ואשמה, ונטייה בולטת לריצוי הסביבה.',
-    interests: ['תיאטרון בובות', 'אגדות וספרי הרפתקאות', 'אפייה', 'ציור בצבעי מים'],
-    longTermGoals:
-      'עיבוד תהליך הפרידה של ההורים, מתן לגיטימציה לביטוי רגשות מודחקים וחיזוק החוסן הנפשי האישי.',
-    ongoingNotes:
-      'הביעה לראשונה כעס דרך סיפור שהמחיזה יחד עם הדמות. צעד משמעותי בהסרת מנגנוני הריצוי.',
-    createdAt: '2026-03-02T11:20:00Z',
-  },
-  {
-    id: 'pat-5',
-    firstName: 'יונתן',
-    lastName: 'שפירא',
-    age: 9,
-    emotionalBackground:
-      'קשיי קשב ופעלתנות יתר (ADHD) המלווים באימפולסיביות ותסכול לימודי מתמשך. פגיעה בערך העצמי עקב ביקורת חוזרת.',
-    interests: ['כדורגל', 'רכיבה על אופניים', 'לגו טכני', 'חידות היגיון'],
-    longTermGoals:
-      'פיתוח מנגנוני ניטור ובקרה עצמית, העלאת הביטחון העצמי ביכולות הלימודיות, ותרגול דחיית סיפוקים.',
-    ongoingNotes:
-      'הגיב בחיוב לפעילות מובנית וקצרה עם הדמות. נהנה ממשוב חיובי ומיידי שחיזק את תחושת המסוגלות.',
-    createdAt: '2026-03-10T16:00:00Z',
+      'בניית ביטחון במצבים חברתיים, תרגול פתיחת שיחה והתמודדות עם מחשבות שליליות אוטומטיות.',
+    therapistNotes:
+      'מתחבר במיוחד לשיחות בגובה העיניים והומור עדין. מגיב טוב לעידוד לא מוגזם.',
+    preferredCharacterIds: ['char_oli', 'char_leo'],
+    createdAt: '2026-02-20T11:00:00Z',
+    updatedAt: '2026-03-08T16:30:00Z',
   },
 ];
 
@@ -88,13 +69,11 @@ export async function getPatients(search?: string): Promise<Patient[]> {
       return [...mockPatients];
     }
     return mockPatients.filter((patient) => {
-      const fullName = `${patient.firstName} ${patient.lastName}`.toLowerCase();
-      const inName = fullName.includes(term);
+      const inAlias = patient.displayAlias.toLowerCase().includes(term);
+      const inPersonal = patient.personalDetails.toLowerCase().includes(term);
       const inBackground = patient.emotionalBackground.toLowerCase().includes(term);
-      const inInterests = patient.interests.some((interest) =>
-        interest.toLowerCase().includes(term),
-      );
-      return inName || inBackground || inInterests;
+      const inInterests = patient.interestsAndSafeTopics.toLowerCase().includes(term);
+      return inAlias || inPersonal || inBackground || inInterests;
     });
   }
 
@@ -118,13 +97,16 @@ export async function getPatientById(id: string): Promise<Patient> {
   return response.data;
 }
 
-export async function createPatient(data: CreatePatientInput): Promise<Patient> {
+export async function createPatient(data: CreatePatientRequest): Promise<Patient> {
   if (USE_MOCK) {
     await new Promise((resolve) => setTimeout(resolve, 200));
+    const now = new Date().toISOString();
     const newPatient: Patient = {
       ...data,
       id: `pat-${Date.now()}`,
-      createdAt: new Date().toISOString(),
+      therapistId: 'therapist-mock-001',
+      createdAt: now,
+      updatedAt: now,
     };
     mockPatients = [newPatient, ...mockPatients];
     return { ...newPatient };
@@ -136,20 +118,20 @@ export async function createPatient(data: CreatePatientInput): Promise<Patient> 
 
 export async function updatePatient(
   id: string,
-  data: UpdatePatientInput,
+  data: UpdatePatientRequest,
 ): Promise<Patient> {
   if (USE_MOCK) {
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const index = mockPatients.findIndex((p) => p.id === id);
-    if (index === -1) {
+    const idx = mockPatients.findIndex((p) => p.id === id);
+    if (idx === -1) {
       throw new Error(`מטופל עם מזהה ${id} לא נמצא`);
     }
-    const updated: Patient = {
-      ...mockPatients[index],
+    mockPatients[idx] = {
+      ...mockPatients[idx],
       ...data,
+      updatedAt: new Date().toISOString(),
     };
-    mockPatients[index] = updated;
-    return { ...updated };
+    return { ...mockPatients[idx] };
   }
 
   const response = await apiClient.put<Patient>(`/patients/${id}`, data);

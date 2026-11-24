@@ -1,29 +1,33 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { TherapistProfile } from '@/types/patient.types';
+import type { Therapist, UpdateTherapistProfileRequest } from '@/types/patient.types';
 
 // ── Mock Defaults ──────────────────────────────────────────────────────────
 export const MOCK_JWT_TOKEN = 'mock_jwt_token_12345';
 
-export const MOCK_THERAPIST: TherapistProfile = {
+export const MOCK_THERAPIST: Therapist = {
   id: 'therapist-mock-001',
-  name: 'ד״ר שרה לוי',
   email: 'sarah.levi@therapy.org',
+  fullName: 'ד״ר שרה לוי',
+  specialty: 'חרדה חברתית, וויסות רגשי, ADHD',
+  licenseNumber: 'IL-PSY-20481',
+  therapeuticPreferences: 'גישה קוגניטיבית-התנהגותית (CBT), טיפול במשחק, טון חם ומכיל',
   createdAt: '2026-01-01T08:00:00Z',
+  updatedAt: '2026-01-01T08:00:00Z',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────
 export interface AuthState {
   token: string | null;
-  therapist: TherapistProfile | null;
+  therapist: Therapist | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 
   // Actions
-  setAuth: (token: string, therapist: TherapistProfile) => void;
+  setAuth: (token: string, therapist: Therapist) => void;
   loginWithMock: (email?: string) => Promise<void>;
   logout: () => void;
-  updateProfile: (partial: Partial<TherapistProfile>) => void;
+  updateProfile: (partial: UpdateTherapistProfileRequest) => void;
 }
 
 // ── Store ──────────────────────────────────────────────────────────────────
@@ -47,7 +51,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        const mockProfile: TherapistProfile = {
+        const mockProfile: Therapist = {
           ...MOCK_THERAPIST,
           ...(email ? { email } : {}),
         };
@@ -70,13 +74,18 @@ export const useAuthStore = create<AuthState>()(
 
       updateProfile: (partial) =>
         set((state) => ({
-          therapist: state.therapist ? { ...state.therapist, ...partial } : null,
+          therapist: state.therapist
+            ? {
+                ...state.therapist,
+                ...partial,
+                updatedAt: new Date().toISOString(),
+              }
+            : null,
         })),
     }),
     {
       name: 'therapist-auth',
       storage: createJSONStorage(() => localStorage),
-      // Only persist token, therapist, and auth status
       partialize: (state) => ({
         token: state.token,
         therapist: state.therapist,

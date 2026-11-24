@@ -1,20 +1,21 @@
 import { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { StopCircle, Wifi, WifiOff } from 'lucide-react';
+import { apiClient } from '@/core/api/axiosClient';
 import { useLiveSessionSocket } from './hooks/useLiveSessionSocket';
 import {
   LiveTranscript,
-  transcriptEntryFromMessage,
+  transcriptEntryFromPayload,
   type TranscriptEntry,
 } from './components/LiveTranscript';
 import { LiveSteeringInput } from './components/LiveSteeringInput';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import type { Session } from '@/types/session.types';
 import type {
-  TranscriptUpdateMessage,
-  EmotionDetectedMessage,
-  CharacterStateMessage,
-  ClientMessage,
+  TranscriptUpdatePayload,
+  EmotionDetectedPayload,
+  CharacterStatePayload,
 } from '@/types/websocket.types';
 
 export function LiveControlRoomPage() {
@@ -24,14 +25,15 @@ export function LiveControlRoomPage() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [latestEmotion, setLatestEmotion] = useState<string | null>(null);
   const [emotionConfidence, setEmotionConfidence] = useState<number>(0);
+  const [characterState, setCharacterState] = useState<CharacterStatePayload | null>(null);
+  const [endingSession, setEndingSession] = useState(false);
 
-  const handleTranscriptUpdate = useCallback((msg: TranscriptUpdateMessage) => {
+  const handleTranscriptUpdate = useCallback((payload: TranscriptUpdatePayload) => {
     setTranscript((prev) => {
-      // Replace interim entry if exists, otherwise append
       const existing = prev.findIndex(
-        (e) => e.speaker === msg.speaker && !e.isFinal,
+        (e) => e.speaker === payload.speaker && !e.isFinal,
       );
-      const entry = transcriptEntryFromMessage(msg);
+      const entry = transcriptEntryFromPayload(payload, prev.length + 1);
       if (existing !== -1) {
         const next = [...prev];
         next[existing] = entry;
@@ -41,20 +43,20 @@ export function LiveControlRoomPage() {
     });
   }, []);
 
-  const handleEmotionDetected = useCallback((msg: EmotionDetectedMessage) => {
-    setLatestEmotion(msg.emotion);
-    setEmotionConfidence(msg.confidence);
+  const handleEmotionDetected = useCallback((payload: EmotionDetectedPayload) => {
+    setLatestEmotion(payload.emotion);
+    setEmotionConfidence(payload.confidence ?? 0);
   }, []);
 
-  const handleCharacterState = useCallback((_msg: CharacterStateMessage) => {
-    // Future: update character animation state indicator
+  const handleCharacterState = useCallback((payload: CharacterStatePayload) => {
+    setCharacterState(payload);
   }, []);
 
   const handleSessionEnded = useCallback(() => {
     navigate('/history', { replace: true });
   }, [navigate]);
 
-  const { status, send, disconnect } = useLiveSessionSocket({
+  const { status, disconnect } = useLiveSessionSocket({
     sessionId: sessionId ?? '',
     onTranscriptUpdate: handleTranscriptUpdate,
     onEmotionDetected: handleEmotionDetected,
@@ -62,15 +64,36 @@ export function LiveControlRoomPage() {
     onSessionEnded: handleSessionEnded,
   });
 
-  function handleEndSession() {
-    send({ type: 'session.end', sessionId: sessionId ?? '' });
-    disconnect();
-    navigate('/history', { replace: true });
+  // Contract 1: End session via Team 2 HTTP POST, disconnect WS, navigate to /history
+  async function handleEndSession() {
+    if (!sessionId || endingSession) return;
+    setEndingSession(true);
+    try {
+      await apiClient.post<Session>('/sessions/' + sessionId + '/end');
+    } catch (err) {
+      console.error('[LiveControlRoom] Failed to call /sessions/:id/end:', err);
+    } finally {
+      disconnect();
+      setEndingSession(false);
+      navigate('/history', { replace: true });
+    }
   }
 
-  function handleSteer(message: ClientMessage) {
-    send(message);
-  }
+  // Optimistically append THERAPIST_STEERING entry after HTTP POST succeeds
+  const handleSteeringSent = useCallback((content: string) => {
+    setTranscript((prev) => [
+      ...prev,
+      {
+        sequenceNumber: prev.length + 1,
+        speaker: 'THERAPIST_STEERING',
+        content,
+        timestamp: new Date().toISOString(),
+        isFinal: true,
+        ttsDirectives: null,
+        animationTriggerId: null,
+      },
+    ]);
+  }, []);
 
   const isConnected = status === 'connected';
 
@@ -84,7 +107,7 @@ export function LiveControlRoomPage() {
             className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
               isConnected
                 ? 'bg-green-100 text-green-700'
-                : status === 'connecting'
+                : status === 'connecting' || status === 'reconnecting'
                 ? 'bg-yellow-100 text-yellow-700'
                 : 'bg-red-100 text-red-700'
             }`}
@@ -98,12 +121,15 @@ export function LiveControlRoomPage() {
               ? 'מחובר'
               : status === 'connecting'
               ? 'מתחבר...'
+              : status === 'reconnecting'
+              ? 'מתחבר מחדש...'
               : 'מנותק'}
           </span>
         </div>
 
         <Button
           variant="danger"
+          loading={endingSession}
           onClick={handleEndSession}
           icon={<StopCircle className="w-4 h-4" />}
         >
@@ -114,18 +140,18 @@ export function LiveControlRoomPage() {
       {/* Main grid */}
       <div className="flex-1 grid grid-cols-3 gap-4 min-h-0">
         {/* Transcript – spans 2 cols */}
-        <div className="col-span-2 flex flex-col">
+        <div className="col-span-2 flex flex-col min-h-0">
           <Card className="flex-1 overflow-hidden p-0">
             <LiveTranscript entries={transcript} />
           </Card>
           <LiveSteeringInput
             sessionId={sessionId ?? ''}
-            onSend={handleSteer}
+            onSteeringSent={handleSteeringSent}
             disabled={!isConnected}
           />
         </div>
 
-        {/* Emotion panel */}
+        {/* Side status panel */}
         <div className="flex flex-col gap-4">
           <Card title="זיהוי רגשות">
             {latestEmotion ? (
@@ -142,15 +168,19 @@ export function LiveControlRoomPage() {
                     : '🤔'}
                 </p>
                 <p className="font-semibold text-gray-900 capitalize">{latestEmotion}</p>
-                <div className="mt-2 bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-therapy-medium h-2 rounded-full transition-all"
-                    style={{ width: `${(emotionConfidence * 100).toFixed(0)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  {(emotionConfidence * 100).toFixed(0)}% ודאות
-                </p>
+                {emotionConfidence > 0 && (
+                  <>
+                    <div className="mt-2 bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-therapy-medium h-2 rounded-full transition-all"
+                        style={{ width: `${(emotionConfidence * 100).toFixed(0)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {(emotionConfidence * 100).toFixed(0)}% ודאות
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <p className="text-center text-gray-400 text-sm py-6">
@@ -166,9 +196,25 @@ export function LiveControlRoomPage() {
                 <dd className="font-mono text-gray-500 truncate max-w-[100px]">{sessionId}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>סטטוס</dt>
+                <dt>סטטוס חיבור</dt>
                 <dd className="font-medium">{status}</dd>
               </div>
+              {characterState && (
+                <>
+                  <div className="flex justify-between">
+                    <dt>מצב דמות</dt>
+                    <dd className="font-medium">{characterState.state}</dd>
+                  </div>
+                  {characterState.animationTriggerId && (
+                    <div className="flex justify-between">
+                      <dt>אנימציה פעילה</dt>
+                      <dd className="font-mono text-therapy-medium">
+                        {characterState.animationTriggerId}
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
             </dl>
           </Card>
         </div>

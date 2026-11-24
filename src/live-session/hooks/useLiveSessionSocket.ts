@@ -1,28 +1,28 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useAuthStore } from '@/core/store/useAuthStore';
 import type {
+  ConnectionStatus,
   ServerMessage,
   ClientMessage,
-  TranscriptUpdateMessage,
-  EmotionDetectedMessage,
-  CharacterStateMessage,
+  TranscriptUpdatePayload,
+  EmotionDetectedPayload,
+  CharacterStatePayload,
+  SessionEndedPayload,
+  WsErrorPayload,
 } from '@/types/websocket.types';
 
 // ── Types ─────────────────────────────────────────────────────────────────
-export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'error';
-
 export interface LiveSessionSocketOptions {
   sessionId: string;
-  onTranscriptUpdate?: (msg: TranscriptUpdateMessage) => void;
-  onEmotionDetected?: (msg: EmotionDetectedMessage) => void;
-  onCharacterState?: (msg: CharacterStateMessage) => void;
-  onSessionEnded?: () => void;
-  onError?: (code: string, message: string) => void;
+  onTranscriptUpdate?: (payload: TranscriptUpdatePayload) => void;
+  onEmotionDetected?: (payload: EmotionDetectedPayload) => void;
+  onCharacterState?: (payload: CharacterStatePayload) => void;
+  onSessionEnded?: (payload: SessionEndedPayload) => void;
+  onError?: (payload: WsErrorPayload) => void;
 }
 
 export interface LiveSessionSocketReturn {
   status: ConnectionStatus;
-  send: (message: ClientMessage) => void;
   disconnect: () => void;
 }
 
@@ -32,15 +32,14 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 
 // ── Hook ──────────────────────────────────────────────────────────────────
 /**
- * Native WebSocket hook for live therapy session control.
- * Owner: Yishai (Team 3)
- * WS Server: Team 5
+ * Native WebSocket hook for live therapy session monitoring (Team 5 WS).
+ * Owner: Yishai
  *
- * Features:
- * - Auto-reconnect with exponential backoff (up to MAX_RECONNECT_ATTEMPTS)
- * - JWT auth handshake on connect
- * - Typed message dispatching via callback options
- * - Clean teardown on unmount
+ * Contract 1 (LOCKED) Real-Time Hybrid Architecture:
+ * - Strictly inbound listener from Team 5 (`${VITE_WS_BASE_URL}/sessions/:sessionId`).
+ * - Sends ONLY the `session.join` handshake on `onopen`.
+ * - Do NOT send steering instructions or session end over WebSocket;
+ *   those go via Team 2 HTTP REST (`POST /sessions/:id/steering` and `/end`).
  */
 export function useLiveSessionSocket({
   sessionId,
@@ -50,17 +49,18 @@ export function useLiveSessionSocket({
   onSessionEnded,
   onError,
 }: LiveSessionSocketOptions): LiveSessionSocketReturn {
-  const [status, setStatus] = useState<ConnectionStatus>('idle');
+  const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMounted = useRef(true);
 
   const { token, therapist } = useAuthStore.getState();
 
   const connect = useCallback(() => {
-    if (!token || !therapist) return;
+    if (!token || !therapist || !sessionId) return;
 
-    setStatus('connecting');
+    setStatus(reconnectAttempts.current > 0 ? 'reconnecting' : 'connecting');
     const ws = new WebSocket(`${WS_BASE_URL}/sessions/${sessionId}`);
     wsRef.current = ws;
 
@@ -69,15 +69,14 @@ export function useLiveSessionSocket({
       reconnectAttempts.current = 0;
       setStatus('connected');
 
-      // Auth handshake: send join message immediately on connect
-      ws.send(
-        JSON.stringify({
-          type: 'session.join',
-          sessionId,
-          therapistId: therapist.id,
-          token,
-        } satisfies ClientMessage),
-      );
+      // Outbound handshake ONLY: send session.join on open
+      const joinMessage: ClientMessage = {
+        type: 'session.join',
+        sessionId,
+        therapistId: therapist.id,
+        token,
+      };
+      ws.send(JSON.stringify(joinMessage));
     };
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -86,19 +85,19 @@ export function useLiveSessionSocket({
         const msg = JSON.parse(event.data) as ServerMessage;
         switch (msg.type) {
           case 'transcript.update':
-            onTranscriptUpdate?.(msg);
+            onTranscriptUpdate?.(msg.payload);
             break;
           case 'emotion.detected':
-            onEmotionDetected?.(msg);
+            onEmotionDetected?.(msg.payload);
             break;
           case 'character.state':
-            onCharacterState?.(msg);
+            onCharacterState?.(msg.payload);
             break;
           case 'session.ended':
-            onSessionEnded?.();
+            onSessionEnded?.(msg.payload);
             break;
           case 'error':
-            onError?.(msg.code, msg.message);
+            onError?.(msg.payload);
             break;
         }
       } catch (err) {
@@ -113,16 +112,27 @@ export function useLiveSessionSocket({
 
     ws.onclose = () => {
       if (!isMounted.current) return;
-      setStatus('disconnected');
 
-      // Auto-reconnect
+      // Auto-reconnect with exponential backoff
       if (reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+        setStatus('reconnecting');
         const delay = RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts.current);
         reconnectAttempts.current++;
-        setTimeout(connect, delay);
+        reconnectTimer.current = setTimeout(connect, delay);
+      } else {
+        setStatus('disconnected');
       }
     };
-  }, [sessionId, token, therapist, onTranscriptUpdate, onEmotionDetected, onCharacterState, onSessionEnded, onError]);
+  }, [
+    sessionId,
+    token,
+    therapist,
+    onTranscriptUpdate,
+    onEmotionDetected,
+    onCharacterState,
+    onSessionEnded,
+    onError,
+  ]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -130,22 +140,21 @@ export function useLiveSessionSocket({
 
     return () => {
       isMounted.current = false;
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+      }
       wsRef.current?.close();
     };
   }, [connect]);
 
-  const send = useCallback((message: ClientMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    } else {
-      console.warn('[WS] Cannot send – socket not open. Status:', wsRef.current?.readyState);
-    }
-  }, []);
-
   const disconnect = useCallback(() => {
     reconnectAttempts.current = MAX_RECONNECT_ATTEMPTS; // prevent auto-reconnect
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current);
+    }
     wsRef.current?.close();
+    setStatus('disconnected');
   }, []);
 
-  return { status, send, disconnect };
+  return { status, disconnect };
 }

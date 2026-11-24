@@ -14,6 +14,7 @@ import {
   RefreshCw,
   CheckCircle2,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -24,7 +25,7 @@ import {
   createPatient,
   updatePatient,
 } from '../api/patientsApi';
-import type { Patient, CreatePatientInput } from '../types/patient.types';
+import type { Patient, CreatePatientRequest } from '@/types/patient.types';
 
 export interface PatientsPageProps {
   onStartSession?: (patientId: string) => void;
@@ -39,11 +40,8 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
-
-  // Success message toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const fetchPatientsList = useCallback(async (searchTerm?: string) => {
@@ -97,17 +95,17 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
     setEditingPatient(null);
   };
 
-  const handleSavePatient = async (formData: CreatePatientInput) => {
+  const handleSavePatient = async (formData: CreatePatientRequest) => {
     if (editingPatient) {
       const updated = await updatePatient(editingPatient.id, formData);
       setPatients((prev) =>
         prev.map((p) => (p.id === updated.id ? updated : p)),
       );
-      showToast(`פרטי המטופל/ת ${updated.firstName} ${updated.lastName} עודכנו בהצלחה`);
+      showToast(`פרטי המטופל/ת ${updated.displayAlias} עודכנו בהצלחה`);
     } else {
       const created = await createPatient(formData);
       setPatients((prev) => [created, ...prev]);
-      showToast(`המטופל/ת ${created.firstName} ${created.lastName} נוסף/ה בהצלחה למערכת`);
+      showToast(`המטופל/ת ${created.displayAlias} נוסף/ה בהצלחה למערכת`);
     }
   };
 
@@ -120,7 +118,6 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
 
   return (
     <div dir="rtl" className="w-full max-w-7xl mx-auto space-y-6">
-      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
@@ -135,7 +132,6 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
         </div>
       )}
 
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-gray-200">
         <div>
           <div className="flex items-center gap-2">
@@ -158,11 +154,10 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
         </Button>
       </div>
 
-      {/* Search and Filters Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="relative flex-1">
           <Input
-            placeholder="חיפוש לפי שם פרטי, שם משפחה, תחומי עניין או רקע רגשי..."
+            placeholder="חיפוש לפי כינוי, פרטים אישיים, תחומי עניין או רקע רגשי..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             icon={<Search className="w-4 h-4 text-gray-400" />}
@@ -184,7 +179,6 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
         </div>
       </div>
 
-      {/* Main Content Area */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-gray-200 shadow-xs">
           <RefreshCw className="w-8 h-8 text-therapy-medium animate-spin mb-3" />
@@ -245,24 +239,28 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
               padding="md"
             >
               <div className="space-y-3.5">
-                {/* Card Top: Avatar, Name, Age, Edit button */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-therapy-soft to-purple-100 text-therapy-strong font-bold text-base flex items-center justify-center border border-purple-200 shrink-0">
-                      {patient.firstName.slice(0, 1)}
+                      {patient.displayAlias.slice(0, 1)}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <h2 className="text-lg font-bold text-gray-900">
-                          {patient.firstName} {patient.lastName}
+                          {patient.displayAlias}
                         </h2>
                         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200">
                           גיל {patient.age}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        מזהה: {patient.id} • נוצר:{' '}
-                        {new Date(patient.createdAt).toLocaleDateString('he-IL')}
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                        {patient.personalDetails}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        מזהה: {patient.id}
+                        {patient.createdAt
+                          ? ` • נוצר: ${new Date(patient.createdAt).toLocaleDateString('he-IL')}`
+                          : ''}
                       </p>
                     </div>
                   </div>
@@ -277,7 +275,6 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
                   </button>
                 </div>
 
-                {/* Emotional Background */}
                 <div className="bg-gray-50 rounded-lg p-3 text-xs leading-relaxed text-gray-700 border border-gray-100">
                   <div className="flex items-center gap-1.5 font-semibold text-gray-800 mb-1">
                     <Heart className="w-3.5 h-3.5 text-rose-500 shrink-0" />
@@ -286,26 +283,16 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
                   <p>{patient.emotionalBackground}</p>
                 </div>
 
-                {/* Interests Chips */}
-                {patient.interests && patient.interests.length > 0 && (
-                  <div>
-                    <div className="text-xs font-medium text-gray-500 mb-1.5">
-                      תחומי עניין:
+                {patient.interestsAndSafeTopics && (
+                  <div className="text-xs text-gray-700">
+                    <div className="flex items-center gap-1.5 font-medium text-gray-600 mb-1">
+                      <Sparkles className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+                      <span>תחומי עניין ונושאים בטוחים:</span>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {patient.interests.map((interest) => (
-                        <span
-                          key={interest}
-                          className="px-2.5 py-0.5 rounded-md text-xs bg-brand-50 text-brand-700 font-medium border border-brand-100"
-                        >
-                          {interest}
-                        </span>
-                      ))}
-                    </div>
+                    <p className="pr-5 text-gray-600">{patient.interestsAndSafeTopics}</p>
                   </div>
                 )}
 
-                {/* Long Term Goals */}
                 <div className="text-xs text-gray-700 space-y-1">
                   <div className="flex items-center gap-1.5 font-semibold text-gray-800">
                     <Target className="w-3.5 h-3.5 text-brand-600 shrink-0" />
@@ -316,21 +303,19 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
                   </p>
                 </div>
 
-                {/* Ongoing Notes (if any) */}
-                {patient.ongoingNotes && (
+                {patient.therapistNotes && (
                   <div className="text-xs text-gray-600 space-y-1 bg-amber-50/60 border border-amber-100 rounded-lg p-2.5">
                     <div className="flex items-center gap-1.5 font-medium text-amber-800">
                       <FileText className="w-3.5 h-3.5 shrink-0" />
-                      <span>הערות שוטפות של המטפל:</span>
+                      <span>הערות מטפל:</span>
                     </div>
                     <p className="pr-5 text-gray-700 line-clamp-2">
-                      {patient.ongoingNotes}
+                      {patient.therapistNotes}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* Card Footer: Action Buttons */}
               <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
                 <Button
                   variant="primary"
@@ -357,7 +342,6 @@ export function PatientsPage({ onStartSession, onViewHistory }: PatientsPageProp
         </div>
       )}
 
-      {/* Patient Form Modal (Create / Edit) */}
       <PatientFormModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}

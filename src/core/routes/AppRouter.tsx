@@ -21,7 +21,7 @@ function ProtectedLayout() {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  return <MainLayout therapistName={therapist?.name} onLogout={logout} />;
+  return <MainLayout therapistName={therapist?.fullName} onLogout={logout} />;
 }
 
 // ── Router ─────────────────────────────────────────────────────────────────

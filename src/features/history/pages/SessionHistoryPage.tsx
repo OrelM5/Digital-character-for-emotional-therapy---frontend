@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import {
   Archive,
@@ -20,12 +20,16 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { getPatients } from '@/features/patients/api/patientsApi';
-import type { Patient } from '@/features/patients/types/patient.types';
-import { getAllSessions, getSessionsByPatient } from '../api/historyApi';
-import type {
-  SessionRecord,
-  SessionHistoryPageProps,
-} from '../types/history.types';
+import { getCharacters } from '@/features/sessions/api/sessionSetupApi';
+import type { Patient } from '@/types/patient.types';
+import type { Character } from '@/types/character.types';
+import type { SessionDetails } from '@/types/session.types';
+import {
+  getAllSessions,
+  getSessionsByPatient,
+  getSessionDetails,
+} from '../api/historyApi';
+import type { SessionHistoryPageProps } from '../types/history.types';
 import { SessionTranscriptModal } from '../components/SessionTranscriptModal';
 
 export function SessionHistoryPage({
@@ -35,41 +39,55 @@ export function SessionHistoryPage({
   const queryPatientId = initialPatientId || searchParams.get('patientId') || '';
 
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState(queryPatientId);
-  const [sessions, setSessions] = useState<SessionRecord[]>([]);
+  const [sessions, setSessions] = useState<SessionDetails[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Modal State
-  const [selectedSession, setSelectedSession] = useState<SessionRecord | null>(null);
+  const [selectedSession, setSelectedSession] = useState<SessionDetails | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Load patients list once for the dropdown
+  const patientNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of patients) {
+      map[p.id] = p.displayAlias;
+    }
+    return map;
+  }, [patients]);
+
+  const characterNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of characters) {
+      map[c.id] = c.name;
+    }
+    return map;
+  }, [characters]);
+
   useEffect(() => {
-    getPatients()
-      .then((data) => setPatients(data))
+    Promise.all([getPatients(), getCharacters()])
+      .then(([pData, cData]) => {
+        setPatients(pData);
+        setCharacters(cData);
+      })
       .catch(() => {});
   }, []);
 
-  // Update selected patient when query parameter changes
   useEffect(() => {
     if (queryPatientId) {
       setSelectedPatientId(queryPatientId);
     }
   }, [queryPatientId]);
 
-  // Load session archives
   const fetchSessions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      let data: SessionRecord[];
-      if (selectedPatientId) {
-        data = await getSessionsByPatient(selectedPatientId);
-      } else {
-        data = await getAllSessions();
-      }
+      const data = selectedPatientId
+        ? await getSessionsByPatient(selectedPatientId)
+        : await getAllSessions();
       setSessions(data);
     } catch {
       setError('שגיאה בטעינת ארכיון המפגשים. אנא נסה שוב.');
@@ -91,9 +109,17 @@ export function SessionHistoryPage({
     }
   };
 
-  const handleOpenTranscript = (session: SessionRecord) => {
+  const handleOpenTranscript = async (session: SessionDetails) => {
     setSelectedSession(session);
     setIsModalOpen(true);
+    if (session.transcript.length === 0) {
+      try {
+        const fullDetails = await getSessionDetails(session.id);
+        setSelectedSession(fullDetails);
+      } catch {
+        // Keep existing summary view if details fail
+      }
+    }
   };
 
   const handleCloseModal = () => {
@@ -103,22 +129,25 @@ export function SessionHistoryPage({
 
   const handleNotesUpdated = (sessionId: string, newNotes: string) => {
     setSessions((prev) =>
-      prev.map((s) => (s.id === sessionId ? { ...s, therapistNotes: newNotes } : s)),
+      prev.map((s) =>
+        s.id === sessionId ? { ...s, therapistSessionNotes: newNotes } : s,
+      ),
     );
     if (selectedSession && selectedSession.id === sessionId) {
-      setSelectedSession((prev) => (prev ? { ...prev, therapistNotes: newNotes } : null));
+      setSelectedSession((prev) =>
+        prev ? { ...prev, therapistSessionNotes: newNotes } : null,
+      );
     }
   };
 
-  // Filter sessions by text search
   const filteredSessions = sessions.filter((s) => {
     if (!searchQuery.trim()) return true;
     const term = searchQuery.trim().toLowerCase();
-    const pName = (s.patientName || '').toLowerCase();
-    const cName = s.characterName.toLowerCase();
-    const goals = s.goals.toLowerCase();
-    const summary = s.aiSummary.toLowerCase();
-    const notes = s.therapistNotes.toLowerCase();
+    const pName = (patientNameMap[s.patientId] || s.patientId).toLowerCase();
+    const cName = (characterNameMap[s.characterId] || s.characterId).toLowerCase();
+    const goals = s.sessionGoals.toLowerCase();
+    const summary = (s.aiSummary || '').toLowerCase();
+    const notes = (s.therapistSessionNotes || '').toLowerCase();
     return (
       pName.includes(term) ||
       cName.includes(term) ||
@@ -156,7 +185,6 @@ export function SessionHistoryPage({
 
       {/* Filter and Search Bar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {/* Patient Dropdown Filter */}
         <div className="md:col-span-1">
           <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
             <Filter className="w-3.5 h-3.5 text-therapy-medium" />
@@ -170,13 +198,12 @@ export function SessionHistoryPage({
             <option value="">כל המטופלים</option>
             {patients.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.firstName} {p.lastName} (גיל {p.age})
+                {p.displayAlias} (גיל {p.age})
               </option>
             ))}
           </select>
         </div>
 
-        {/* Free Text Search */}
         <div className="md:col-span-2">
           <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
             <Search className="w-3.5 h-3.5 text-gray-400" />
@@ -236,100 +263,127 @@ export function SessionHistoryPage({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {filteredSessions.map((session) => (
-            <Card
-              key={session.id}
-              className="hover:shadow-md transition-shadow border-gray-200"
-              padding="lg"
-            >
-              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                {/* Right / Main Info */}
-                <div className="space-y-3 flex-1">
-                  {/* Top Meta Header */}
-                  <div className="flex flex-wrap items-center gap-3 text-xs">
-                    <span className="inline-flex items-center gap-1.5 font-bold text-gray-900 text-sm">
-                      <User className="w-4 h-4 text-therapy-medium" />
-                      {session.patientName || session.patientId}
-                    </span>
-                    <span className="text-gray-300">•</span>
-                    <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full font-medium border border-purple-200">
-                      <Bot className="w-3.5 h-3.5" />
-                      {session.characterName}
-                    </span>
-                    <span className="text-gray-300">•</span>
-                    <span className="text-gray-500 flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                      {new Date(session.date).toLocaleDateString('he-IL', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                    <span className="text-gray-300">•</span>
-                    <span className="text-gray-500 flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-gray-400" />
-                      {session.durationMinutes} דקות
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold mr-auto">
-                      מפגש הושלם
-                    </span>
-                  </div>
+          {filteredSessions.map((session) => {
+            const patientLabel = patientNameMap[session.patientId] || session.patientId;
+            const characterLabel =
+              characterNameMap[session.characterId] || session.characterId;
+            const durationMinutes = session.durationSeconds
+              ? Math.max(1, Math.round(session.durationSeconds / 60))
+              : null;
 
-                  {/* Session Goals */}
-                  <div className="text-xs text-gray-700 flex items-start gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-brand-600 shrink-0 mt-0.5" />
-                    <span className="font-semibold text-gray-800">יעדי המפגש:</span>
-                    <span className="text-gray-600">{session.goals}</span>
-                  </div>
-
-                  {/* AI Summary Highlight Box */}
-                  <div className="bg-gradient-to-r from-therapy-soft/50 to-purple-50/30 rounded-xl p-3 border border-purple-100 text-xs leading-relaxed text-gray-700 space-y-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-therapy-strong">
-                      <Sparkles className="w-3.5 h-3.5 text-therapy-medium" />
-                      <span>תמצית סיכום ה-AI:</span>
+            return (
+              <Card
+                key={session.id}
+                className="hover:shadow-md transition-shadow border-gray-200"
+                padding="lg"
+              >
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                  <div className="space-y-3 flex-1">
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-gray-900 text-sm">
+                        <User className="w-4 h-4 text-therapy-medium" />
+                        {patientLabel}
+                      </span>
+                      <span className="text-gray-300">•</span>
+                      <span className="inline-flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full font-medium border border-purple-200">
+                        <Bot className="w-3.5 h-3.5" />
+                        {characterLabel}
+                      </span>
+                      {session.startedAt && (
+                        <>
+                          <span className="text-gray-300">•</span>
+                          <span className="text-gray-500 flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                            {new Date(session.startedAt).toLocaleDateString('he-IL', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </>
+                      )}
+                      {durationMinutes !== null && (
+                        <>
+                          <span className="text-gray-300">•</span>
+                          <span className="text-gray-500 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-gray-400" />
+                            {durationMinutes} דקות
+                          </span>
+                        </>
+                      )}
+                      <span className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold mr-auto">
+                        {session.status === 'COMPLETED'
+                          ? 'מפגש הושלם'
+                          : session.status === 'ACTIVE'
+                          ? 'פעיל'
+                          : 'נוצר'}
+                      </span>
                     </div>
-                    <p className="line-clamp-2 text-gray-700 pr-5">
-                      {session.aiSummary}
-                    </p>
+
+                    <div className="text-xs text-gray-700 flex items-start gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-brand-600 shrink-0 mt-0.5" />
+                      <span className="font-semibold text-gray-800">יעדי המפגש:</span>
+                      <span className="text-gray-600">{session.sessionGoals}</span>
+                    </div>
+
+                    {session.aiSummary && (
+                      <div className="bg-gradient-to-r from-therapy-soft/50 to-purple-50/30 rounded-xl p-3 border border-purple-100 text-xs leading-relaxed text-gray-700 space-y-1">
+                        <div className="flex items-center gap-1.5 font-semibold text-therapy-strong">
+                          <Sparkles className="w-3.5 h-3.5 text-therapy-medium" />
+                          <span>תמצית סיכום ה-AI:</span>
+                        </div>
+                        <p className="line-clamp-2 text-gray-700 pr-5">
+                          {session.aiSummary}
+                        </p>
+                      </div>
+                    )}
+
+                    {session.therapistSessionNotes && (
+                      <div className="text-xs text-gray-600 flex items-start gap-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                        <FileText className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" />
+                        <span className="font-semibold text-gray-700">הערות מטפל:</span>
+                        <p className="line-clamp-1 text-gray-600">
+                          {session.therapistSessionNotes}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Therapist Notes Snippet (if available) */}
-                  {session.therapistNotes && (
-                    <div className="text-xs text-gray-600 flex items-start gap-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
-                      <FileText className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" />
-                      <span className="font-semibold text-gray-700">הערות מטפל:</span>
-                      <p className="line-clamp-1 text-gray-600">
-                        {session.therapistNotes}
-                      </p>
-                    </div>
-                  )}
+                  <div className="lg:self-center shrink-0 pt-2 lg:pt-0">
+                    <Button
+                      variant="primary"
+                      size="md"
+                      icon={<Eye className="w-4 h-4" />}
+                      onClick={() => void handleOpenTranscript(session)}
+                      className="w-full lg:w-auto"
+                    >
+                      פרוטוקול וסיכום מלא
+                    </Button>
+                  </div>
                 </div>
-
-                {/* Left Action Button */}
-                <div className="lg:self-center shrink-0 pt-2 lg:pt-0">
-                  <Button
-                    variant="primary"
-                    size="md"
-                    icon={<Eye className="w-4 h-4" />}
-                    onClick={() => handleOpenTranscript(session)}
-                    className="w-full lg:w-auto"
-                  >
-                    פרוטוקול וסיכום מלא
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* Transcript & Summary Modal */}
       <SessionTranscriptModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         session={selectedSession}
+        patientDisplayName={
+          selectedSession
+            ? patientNameMap[selectedSession.patientId] || selectedSession.patientId
+            : undefined
+        }
+        characterDisplayName={
+          selectedSession
+            ? characterNameMap[selectedSession.characterId] ||
+              selectedSession.characterId
+            : undefined
+        }
         onNotesUpdated={handleNotesUpdated}
       />
     </div>

@@ -10,17 +10,18 @@ import {
   Save,
   CheckCircle2,
   FileText,
-  Heart,
   MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { updateTherapistNotes } from '../api/historyApi';
-import type { SessionRecord } from '../types/history.types';
+import type { SessionDetails } from '@/types/session.types';
 
 export interface SessionTranscriptModalProps {
   isOpen: boolean;
   onClose: () => void;
-  session: SessionRecord | null;
+  session: SessionDetails | null;
+  patientDisplayName?: string;
+  characterDisplayName?: string;
   onNotesUpdated?: (sessionId: string, newNotes: string) => void;
 }
 
@@ -28,6 +29,8 @@ export function SessionTranscriptModal({
   isOpen,
   onClose,
   session,
+  patientDisplayName,
+  characterDisplayName,
   onNotesUpdated,
 }: SessionTranscriptModalProps) {
   const [notes, setNotes] = useState('');
@@ -36,7 +39,7 @@ export function SessionTranscriptModal({
 
   useEffect(() => {
     if (session) {
-      setNotes(session.therapistNotes || '');
+      setNotes(session.therapistSessionNotes || '');
       setSaveSuccess(false);
     }
   }, [session]);
@@ -54,6 +57,10 @@ export function SessionTranscriptModal({
 
   if (!isOpen || !session) return null;
 
+  const durationMinutes = session.durationSeconds
+    ? Math.max(1, Math.round(session.durationSeconds / 60))
+    : null;
+
   const handleSaveNotes = async () => {
     setSavingNotes(true);
     setSaveSuccess(false);
@@ -61,7 +68,7 @@ export function SessionTranscriptModal({
       const updated = await updateTherapistNotes(session.id, notes);
       setSaveSuccess(true);
       if (onNotesUpdated) {
-        onNotesUpdated(session.id, updated.therapistNotes);
+        onNotesUpdated(session.id, updated.therapistSessionNotes || '');
       }
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch {
@@ -94,20 +101,28 @@ export function SessionTranscriptModal({
                 </h2>
                 <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
                   <span className="font-medium text-gray-800">
-                    מטופל: {session.patientName || session.patientId}
+                    מטופל: {patientDisplayName || session.patientId}
                   </span>
                   <span>•</span>
-                  <span>דמות: {session.characterName}</span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5" />
-                    {new Date(session.date).toLocaleDateString('he-IL')}
-                  </span>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    {session.durationMinutes} דקות
-                  </span>
+                  <span>דמות: {characterDisplayName || session.characterId}</span>
+                  {session.startedAt && (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        {new Date(session.startedAt).toLocaleDateString('he-IL')}
+                      </span>
+                    </>
+                  )}
+                  {durationMinutes !== null && (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        {durationMinutes} דקות
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -142,12 +157,12 @@ export function SessionTranscriptModal({
             </div>
 
             <p className="text-xs sm:text-sm text-gray-700 leading-relaxed">
-              {session.aiSummary}
+              {session.aiSummary || 'טרם נוצר סיכום אוטומטי למפגש זה.'}
             </p>
 
             <div className="pt-2 border-t border-purple-100/80 flex items-start gap-2 text-xs text-purple-900">
               <span className="font-semibold shrink-0">מטרות שהוגדרו:</span>
-              <span className="text-purple-800">{session.goals}</span>
+              <span className="text-purple-800">{session.sessionGoals}</span>
             </div>
           </div>
 
@@ -166,11 +181,10 @@ export function SessionTranscriptModal({
             {/* Transcript Messages Container */}
             <div className="bg-gray-50/60 rounded-2xl p-4 border border-gray-200 space-y-4 max-h-[380px] overflow-y-auto">
               {session.transcript.map((msg) => {
-                if (msg.sender === 'THERAPIST_STEERING') {
-                  // Live Steering Banner
+                if (msg.speaker === 'THERAPIST_STEERING') {
                   return (
                     <div
-                      key={msg.id}
+                      key={msg.sequenceNumber}
                       className="mx-auto w-full max-w-xl my-2 p-3 bg-amber-50/90 rounded-xl border border-dashed border-amber-300 text-xs shadow-xs"
                     >
                       <div className="flex items-center justify-between mb-1">
@@ -179,26 +193,25 @@ export function SessionTranscriptModal({
                           הנחיית מטפל חיה (מאחורי הקלעים)
                         </span>
                         <span className="text-[11px] text-amber-600 font-mono">
-                          {msg.timestamp}
+                          {new Date(msg.timestamp).toLocaleTimeString('he-IL')}
                         </span>
                       </div>
                       <p className="text-amber-900 leading-relaxed font-medium">
-                        {msg.text}
+                        {msg.content}
                       </p>
                     </div>
                   );
                 }
 
-                const isChild = msg.sender === 'CHILD';
+                const isChild = msg.speaker === 'CHILD';
 
                 return (
                   <div
-                    key={msg.id}
+                    key={msg.sequenceNumber}
                     className={`flex items-start gap-3 ${
                       isChild ? 'flex-row' : 'flex-row-reverse'
                     }`}
                   >
-                    {/* Avatar Icon */}
                     <div
                       className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-xs font-bold shadow-xs ${
                         isChild
@@ -206,14 +219,9 @@ export function SessionTranscriptModal({
                           : 'bg-purple-100 text-therapy-strong border border-purple-200'
                       }`}
                     >
-                      {isChild ? (
-                        <User className="w-4 h-4" />
-                      ) : (
-                        <Bot className="w-4 h-4" />
-                      )}
+                      {isChild ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
 
-                    {/* Message Bubble */}
                     <div
                       className={`max-w-[78%] rounded-2xl px-4 py-3 text-xs sm:text-sm leading-relaxed shadow-xs space-y-1.5 ${
                         isChild
@@ -224,21 +232,28 @@ export function SessionTranscriptModal({
                       <div className="flex items-center justify-between gap-4 text-[11px] text-gray-400">
                         <span className="font-semibold text-gray-700">
                           {isChild
-                            ? session.patientName || 'הילד/ה'
-                            : session.characterName}
+                            ? patientDisplayName || 'הילד/ה'
+                            : characterDisplayName || session.characterId}
                         </span>
-                        <span className="font-mono">{msg.timestamp}</span>
+                        <span className="font-mono">
+                          {new Date(msg.timestamp).toLocaleTimeString('he-IL')}
+                        </span>
                       </div>
 
-                      <p className="text-gray-800 whitespace-pre-wrap">{msg.text}</p>
+                      <p className="text-gray-800 whitespace-pre-wrap">{msg.content}</p>
 
-                      {/* Emotion Tag for child if detected */}
-                      {isChild && msg.detectedEmotion && (
-                        <div className="pt-1 flex items-center gap-1">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                            <Heart className="w-3 h-3 text-rose-500" />
-                            רגש מזוהה: {msg.detectedEmotion}
-                          </span>
+                      {(msg.animationTriggerId || msg.ttsDirectives) && (
+                        <div className="pt-1 flex flex-wrap items-center gap-1.5">
+                          {msg.animationTriggerId && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
+                              {msg.animationTriggerId}
+                            </span>
+                          )}
+                          {msg.ttsDirectives && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                              {msg.ttsDirectives}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>
